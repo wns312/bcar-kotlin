@@ -1,0 +1,33 @@
+name: Gradle Build
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java-version: [17]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: JDK Setting
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: ${{ matrix.java-version }}
+
+      - name: Gradle Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ matrix.java-version }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ matrix.java-version }}-
+
+      - name: Gradle 빌드 및 테스트
+        run: ./gradlew clean build --no-daemon
