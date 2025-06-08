@@ -1,5 +1,6 @@
 package jyk.bcar.dispatcher
 
+import jyk.bcar.dispatcher.exception.IllegalRunnerException
 import jyk.bcar.runner.Runner
 import org.springframework.boot.CommandLineRunner
 import org.springframework.stereotype.Component
@@ -16,7 +17,7 @@ class RunnerDispatcher(
     }
 
     private fun getRunnerName(vararg args: String?): String {
-        require(args.isNotEmpty())
+        if (args.isEmpty()) throw IllegalRunnerException()
 
         return args[0]!!
     }
