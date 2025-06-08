@@ -5,7 +5,9 @@ on:
 
 jobs:
   build:
-    runs-on: selenium/standalone-chrome:latest
+    runs-on: ubuntu-latest
+    container:
+      image: selenium/standalone-chrome:latest
     strategy:
       matrix:
         java-version: [17]
