@@ -44,17 +44,18 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Docker 이미지 빌드
+        env:
+          IMAGE_TAG_URI: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_NAMESPACE }}/${{ secrets.ECR_REPOSITORY }}
         run: |
           IMAGE_TAG=${{ github.sha }}
           docker build \
             --build-arg JAR_FILE=build/libs/*.jar \
-            -t ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG \
+            -t ${{ env.IMAGE_TAG_URI }}:$IMAGE_TAG \
             .
 
       - name: Docker 이미지 푸시
+        env:
+          IMAGE_TAG_URI: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_NAMESPACE }}/${{ secrets.ECR_REPOSITORY }}
         run: |
           IMAGE_TAG=${{ github.sha }}
-          docker push ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG
-
-      - name: 태그 정보 등록 (Optional)
-        run: echo "IMAGE_URI=${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_NAMESPACE }}/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          docker push ${{ env.IMAGE_TAG_URI }}:$IMAGE_TAG
