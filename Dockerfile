@@ -1,13 +1,15 @@
-FROM openjdk:17-jdk-slim
+FROM selenium/standalone-chrome:latest
 LABEL authors="jyk"
-# 실행용 디렉토리
-WORKDIR /app
 
-ARG JAR_FILE
+USER root
 
-# Builder 스테이지에서 생성된 JAR 파일만 복사
-COPY ${JAR_FILE} ./app.jar
+RUN apt-get update && \
+    apt-get install -y openjdk-17-jdk && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# 포트 및 실행 커맨드
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+WORKDIR app
+
+COPY ./build/libs/*.jar app.jar
+
+ENTRYPOINT ["java", "-jar", "app.jar", "testRunner"]
