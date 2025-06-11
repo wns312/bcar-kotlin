@@ -5,6 +5,7 @@ on:
 
 jobs:
   build:
+    environment: prod
     runs-on: ubuntu-latest
     strategy:
       matrix:
