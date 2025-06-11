@@ -4,21 +4,6 @@ on:
   push:
 
 jobs:
-  aws:
-    environment: prod
-    runs-on: ubuntu-latest
-    steps:
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ secrets.AWS_REGION }}
-    - name: AWS 로그인 (ECR)
-      uses: aws-actions/amazon-ecr-login@v2
-      with:
-        aws-region: ${{ secrets.AWS_REGION }}
-
   build:
     environment: prod
     runs-on: ubuntu-latest
@@ -48,19 +33,28 @@ jobs:
       - name: Gradle 빌드 및 테스트
         run: ./gradlew clean build --no-daemon
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: AWS 로그인 (ECR)
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Docker 이미지 빌드
         run: |
           IMAGE_TAG=${{ github.sha }}
           docker build \
             --build-arg JAR_FILE=build/libs/*.jar \
-            -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG \
+            -t ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG \
             .
 
       - name: Docker 이미지 푸시
         run: |
           IMAGE_TAG=${{ github.sha }}
-          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
+          docker push ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG
 
       - name: 태그 정보 등록 (Optional)
-        run: echo "IMAGE_URI=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        run: echo "IMAGE_URI=${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_NAMESPACE }}/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG" >> $GITHUB_OUTPUT
