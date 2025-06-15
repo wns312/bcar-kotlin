@@ -2,6 +2,7 @@ package jyk.bcar.dispatcher
 
 import jyk.bcar.dispatcher.exception.IllegalRunnerException
 import jyk.bcar.runner.Runner
+import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.mock
@@ -36,23 +37,24 @@ class RunnerDispatcherTest {
     }
 
     @Test
-    fun `인자로 들어온 noArgs에 맞는 Runner의 run을 실행`() {
-        // given
-        val mockRunnerName = "mockRunner"
-        val mockRunner = mock<Runner>()
-        val dispatcher =
-            RunnerDispatcher(
-                runners =
-                    mapOf<String, Runner>(
-                        mockRunnerName to mockRunner,
-                    ),
-            )
-        val applicationArguments = DefaultApplicationArguments(mockRunnerName)
+    fun `인자로 들어온 noArgs에 맞는 Runner의 run을 실행`() =
+        runTest {
+            // given
+            val mockRunnerName = "mockRunner"
+            val mockRunner = mock<Runner>()
+            val dispatcher =
+                RunnerDispatcher(
+                    runners =
+                        mapOf<String, Runner>(
+                            mockRunnerName to mockRunner,
+                        ),
+                )
+            val applicationArguments = DefaultApplicationArguments(mockRunnerName)
 
-        // when
-        dispatcher.run(applicationArguments)
+            // when
+            dispatcher.run(applicationArguments)
 
-        // then
-        verify(mockRunner, times(1)).run()
-    }
+            // then
+            verify(mockRunner, times(1)).run()
+        }
 }

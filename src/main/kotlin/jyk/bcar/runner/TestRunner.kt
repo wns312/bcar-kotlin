@@ -8,7 +8,7 @@ import java.time.Duration
 
 @Component
 class TestRunner : Runner {
-    override fun run() {
+    override suspend fun run() {
         val driver =
             ChromeDriver(
                 ChromeOptions().apply {

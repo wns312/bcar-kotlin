@@ -1,5 +1,5 @@
 package jyk.bcar.runner
 
 interface Runner {
-    fun run()
+    suspend fun run()
 }

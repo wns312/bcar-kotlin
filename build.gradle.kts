@@ -5,6 +5,7 @@ plugins {
     id("io.spring.dependency-management") version "1.1.7"
     id("org.graalvm.buildtools.native") version "0.10.6"
     id("org.jlleitschuh.gradle.ktlint") version "12.3.0"
+    application
 }
 
 ktlint {
@@ -27,9 +28,15 @@ repositories {
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+
     implementation("org.seleniumhq.selenium:selenium-java:4.33.0")
+    implementation("software.amazon.awssdk:bom:2.31.63")
+    implementation("software.amazon.awssdk:netty-nio-client:2.31.63")
+    implementation("software.amazon.awssdk:batch:2.31.63")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("org.testcontainers:testcontainers:1.20.0")
     testImplementation("org.testcontainers:selenium:1.20.0")
