@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component
 
 @Component
 class HelloWorldRunner : Runner {
-    override fun run() {
+    override suspend fun run() {
         println("Hello World!")
     }
 }

@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component
 
 @Component
 class DraftCollector : Runner {
-    override fun run() {
+    override suspend fun run() {
         print("Collecting Drafts...")
     }
 }
