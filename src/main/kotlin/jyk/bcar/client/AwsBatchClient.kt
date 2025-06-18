@@ -33,7 +33,7 @@ class AwsBatchClient(
                         .builder()
                         .apiCallTimeout(Duration.ofMinutes(2)) // Set the overall API call timeout.
                         .apiCallAttemptTimeout(Duration.ofSeconds(90)) // Set the individual call attempt timeout.
-                        .retryStrategy(AwsRetryStrategy.defaultRetryStrategy())
+                        .retryStrategy(AwsRetryStrategy.adaptiveRetryStrategy())
                         .build(),
                 ).build()
     }
