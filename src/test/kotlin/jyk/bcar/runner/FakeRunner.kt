@@ -3,8 +3,8 @@ package jyk.bcar.runner
 import org.springframework.stereotype.Component
 
 @Component
-class HelloWorldRunner : Runner {
+class FakeRunner : Runner {
     override suspend fun run() {
-        println("Hello World!")
+        println("FakeRunner executed.")
     }
 }
