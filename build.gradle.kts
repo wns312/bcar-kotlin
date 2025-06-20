@@ -51,9 +51,7 @@ kotlin {
 }
 
 tasks.withType<Test> {
-    useJUnitPlatform {
-        excludeTags.add("local")
-    }
+    useJUnitPlatform {}
 }
 
 tasks.jar {
