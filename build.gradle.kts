@@ -30,7 +30,6 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
-    implementation("org.seleniumhq.selenium:selenium-java:4.33.0")
     implementation("software.amazon.awssdk:bom:2.31.63")
     implementation("software.amazon.awssdk:netty-nio-client:2.31.63")
     implementation("software.amazon.awssdk:batch:2.31.63")
@@ -39,7 +38,6 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("org.testcontainers:testcontainers:1.20.0")
-    testImplementation("org.testcontainers:selenium:1.20.0")
 
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
