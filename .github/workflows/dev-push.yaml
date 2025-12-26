@@ -1,0 +1,61 @@
+name: Dev Build and Push (Manual)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build_and_push:
+    environment: dev
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java-version: [17]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: JDK Setting
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: ${{ matrix.java-version }}
+
+      - name: Gradle Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ matrix.java-version }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ matrix.java-version }}-
+
+      - name: Gradle Build and Test
+        run: ./gradlew clean build --no-daemon
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: AWS Login (ECR)
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Docker Build (Dev)
+        env:
+          IMAGE_TAG_URI: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}
+        run: |
+          IMAGE_TAG=${{ github.sha }}
+          docker build \
+            --build-arg JAR_FILE=build/libs/*.jar \
+            -t ${{ env.IMAGE_TAG_URI }}:$IMAGE_TAG \
+            .
+
+      - name: Docker Push (Dev)
+        env:
+          IMAGE_TAG_URI: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}
+        run: |
+          IMAGE_TAG=${{ github.sha }}
+          docker push ${{ env.IMAGE_TAG_URI }}:$IMAGE_TAG
