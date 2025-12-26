@@ -1,11 +1,13 @@
-name: Gradle Build
+name: Dev Build
 
 on:
   push:
+    branches-ignore:
+      - main
 
 jobs:
   build:
-    environment: prod
+    environment: dev
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -30,32 +32,15 @@ jobs:
           key: gradle-${{ matrix.java-version }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ matrix.java-version }}-
 
-      - name: Gradle 빌드 및 테스트
+      - name: Gradle Build and Test
         run: ./gradlew clean build --no-daemon
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: AWS 로그인 (ECR)
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Docker 이미지 빌드
+      - name: Docker Build (Dev)
         env:
-          IMAGE_TAG_URI: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_NAMESPACE }}/${{ secrets.ECR_REPOSITORY }}
+          IMAGE_TAG_URI: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}
         run: |
           IMAGE_TAG=${{ github.sha }}
           docker build \
             --build-arg JAR_FILE=build/libs/*.jar \
             -t ${{ env.IMAGE_TAG_URI }}:$IMAGE_TAG \
             .
-
-      - name: Docker 이미지 푸시
-        env:
-          IMAGE_TAG_URI: ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_NAMESPACE }}/${{ secrets.ECR_REPOSITORY }}
-        run: |
-          IMAGE_TAG=${{ github.sha }}
-          docker push ${{ env.IMAGE_TAG_URI }}:$IMAGE_TAG
