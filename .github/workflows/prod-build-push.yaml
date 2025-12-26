@@ -53,6 +53,7 @@ jobs:
           docker build \
             --build-arg JAR_FILE=build/libs/*.jar \
             -t ${{ env.IMAGE_TAG_URI }}:$IMAGE_TAG \
+            -t ${{ env.IMAGE_TAG_URI }}:latest \
             .
 
       - name: Docker Push (Prod)
@@ -61,3 +62,4 @@ jobs:
         run: |
           IMAGE_TAG=${{ github.sha }}
           docker push ${{ env.IMAGE_TAG_URI }}:$IMAGE_TAG
+          docker push ${{ env.IMAGE_TAG_URI }}:latest
