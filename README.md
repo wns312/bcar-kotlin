@@ -17,6 +17,12 @@
 - 로그 확인:
   - 잡 시작/완료 로그가 출력되는지 확인
 
+## Playwright 준비
+- 브라우저 바이너리 설치: `./gradlew playwrightInstall`
+- 설정: `src/main/resources/application.yaml`의 `automation.playwright.*`로 브라우저/헤드리스/타임아웃 조정
+- 로컬에서 헤드리스 해제: `application-local.yaml`에 `automation.playwright.headless=false` (활성화: `SPRING_PROFILES_ACTIVE=local` 또는 `--spring.profiles.active=local`)
+- 컨테이너 실행 시 Playwright 브라우저가 포함된 이미지 사용 권장(필요하면 Dockerfile 조정)
+
 ## 워크플로우 실행 준비
 이 레포는 GitHub Actions로 빌드/푸시합니다.
 

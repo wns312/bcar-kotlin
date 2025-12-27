@@ -205,6 +205,12 @@ resource "aws_batch_job_definition" "main" {
     command          = ["--job=collect-draft", "--next=true"]
     executionRoleArn = aws_iam_role.batch_execution.arn
     jobRoleArn       = aws_iam_role.batch_job.arn
+    environment = [
+      {
+        name  = "SPRING_PROFILES_ACTIVE"
+        value = var.environment
+      }
+    ]
     resourceRequirements = [
       {
         type  = "VCPU"

@@ -29,6 +29,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+    implementation("com.microsoft.playwright:playwright:1.50.0")
 
     implementation("software.amazon.awssdk:bom:2.31.63")
     implementation("software.amazon.awssdk:netty-nio-client:2.31.63")
@@ -50,6 +51,14 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform {}
+}
+
+tasks.register<JavaExec>("playwrightInstall") {
+    group = "playwright"
+    description = "Install Playwright browsers for local execution."
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.microsoft.playwright.CLI")
+    args("install")
 }
 
 tasks.jar {
