@@ -1,4 +1,4 @@
-FROM selenium/standalone-chrome:latest
+FROM mcr.microsoft.com/playwright:jammy
 LABEL authors="jyk"
 
 USER root
@@ -8,6 +8,8 @@ apt-get install -y openjdk-17-jre-headless && \
 apt-get clean && \
 rm -rf /var/lib/apt/lists/*
 
-WORKDIR app
+WORKDIR /app
 
 COPY ./build/libs/*.jar app.jar
+
+ENTRYPOINT ["java","-jar","/app/app.jar"]
