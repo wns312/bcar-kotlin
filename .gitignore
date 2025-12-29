@@ -46,3 +46,6 @@ out/
 crash.log
 crash.*.log
 .terraform.tfstate.lock.info
+
+### Local
+application-local.yaml

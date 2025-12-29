@@ -86,6 +86,13 @@ resource "aws_cloudwatch_log_group" "batch" {
   tags = local.tags
 }
 
+resource "aws_secretsmanager_secret" "app_sensitive" {
+  name        = "${local.name_prefix}"
+  description = "Application config secrets for ${local.name_prefix}."
+
+  tags = local.tags
+}
+
 resource "aws_iam_role" "batch_service" {
   name = "${local.name_prefix}-batch-service-role"
 
@@ -151,6 +158,25 @@ resource "aws_iam_role" "batch_job" {
   })
 
   tags = local.tags
+}
+
+resource "aws_iam_role_policy" "batch_job_secrets_read" {
+  name = "${local.name_prefix}-batch-job-secrets-read"
+  role = aws_iam_role.batch_job.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = aws_secretsmanager_secret.app_sensitive.arn
+      }
+    ]
+  })
 }
 
 resource "aws_batch_compute_environment" "main" {

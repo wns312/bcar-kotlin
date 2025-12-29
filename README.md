@@ -5,6 +5,34 @@
 ## Terraform 사용법
 상세 내용은 `deploy/terraform/app/README.md` 참고.
 
+## Secrets Manager 수동 운영
+Terraform은 Secrets Manager의 "껍데기"만 관리하고 값은 수동으로 갱신한다.
+앱은 `spring.config.import`로 시크릿을 로딩하며, 로컬은 `application-local.yaml`로 오버라이드한다.
+
+### 시크릿 이름 규칙
+- `bcar-dev`
+- `bcar-prod`
+
+### 값 갱신 절차
+1. AWS Console에서 Secrets Manager로 이동
+2. 대상 시크릿 선택 후 "Retrieve secret value" -> "Edit"
+3. JSON 형식으로 값 입력 후 저장(새 버전 생성)
+
+### CLI로 값 갱신(옵션)
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id bcar-dev \
+  --secret-string '{"key":"value"}'
+```
+
+### 권한(최소 권한 원칙)
+- 읽기 권한(앱 실행 Role): `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`
+- 쓰기 권한(운영자만): `secretsmanager:PutSecretValue`
+
+### 운영 주의사항
+- 값 변경 후 앱 재기동/재배포가 필요할 수 있음
+- JSON 키는 앱 프로퍼티 바인딩과 동일한 이름을 사용
+
 ## 앱 사용법
 - 로컬 빌드:
   - `./gradlew clean bootJar`
