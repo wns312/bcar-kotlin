@@ -15,6 +15,7 @@ class CollectDraftJob(
 ) : AutomationJob<CollectDraftResult> {
     companion object {
         const val COLLECT_LOGIN_URL = "http://thebestcar.kr/mypage/login.html"
+        const val COLLECT_ADMIN_LOGIN_OK_URL = "http://thebestcar.kr/mypage/login_ok.html"
         const val COLLECT_ADMIN_URL = "http://thebestcar.kr/mypage/mycar.html"
     }
 
@@ -50,6 +51,9 @@ class CollectDraftJob(
         }
 
         this.locator("button[class=\"btn_login\"]").click()
+        if (this.url() == COLLECT_ADMIN_LOGIN_OK_URL) {
+            this.navigate(COLLECT_ADMIN_URL)
+        }
         check(this.url() == COLLECT_ADMIN_URL)
     }
 }
