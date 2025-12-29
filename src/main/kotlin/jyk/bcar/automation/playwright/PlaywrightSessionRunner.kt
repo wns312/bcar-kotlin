@@ -1,5 +1,6 @@
 package jyk.bcar.automation.playwright
 
+import com.microsoft.playwright.Browser
 import com.microsoft.playwright.BrowserType
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.Playwright
@@ -51,7 +52,7 @@ class PlaywrightSessionRunner(
 }
 
 class PlaywrightSession internal constructor(
-    private val browser: com.microsoft.playwright.Browser,
+    private val browser: Browser,
     private val properties: PlaywrightProperties,
 ) {
     suspend fun <T> usePage(block: suspend (Page) -> T): T {
