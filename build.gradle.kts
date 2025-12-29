@@ -67,6 +67,10 @@ tasks.withType<Test> {
     systemProperty("spring.profiles.active", "test")
 }
 
+tasks.withType<org.springframework.boot.gradle.tasks.aot.ProcessTestAot> {
+    jvmArgs("-Dspring.profiles.active=test")
+}
+
 tasks.register<JavaExec>("playwrightInstall") {
     group = "playwright"
     description = "Install Playwright browsers for local execution."
