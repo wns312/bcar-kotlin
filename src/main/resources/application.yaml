@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: bcar
+
+automation:
+  playwright:
+    browser: chromium
+    headless: true
+    slow-mo-ms: 0
+    timeout-ms: 30000

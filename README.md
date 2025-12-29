@@ -5,6 +5,34 @@
 ## Terraform 사용법
 상세 내용은 `deploy/terraform/app/README.md` 참고.
 
+## Secrets Manager 수동 운영
+Terraform은 Secrets Manager의 "껍데기"만 관리하고 값은 수동으로 갱신한다.
+앱은 `spring.config.import`로 시크릿을 로딩하며, 로컬은 `application-local.yaml`로 오버라이드한다.
+
+### 시크릿 이름 규칙
+- `bcar-dev`
+- `bcar-prod`
+
+### 값 갱신 절차
+1. AWS Console에서 Secrets Manager로 이동
+2. 대상 시크릿 선택 후 "Retrieve secret value" -> "Edit"
+3. JSON 형식으로 값 입력 후 저장(새 버전 생성)
+
+### CLI로 값 갱신(옵션)
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id bcar-dev \
+  --secret-string '{"key":"value"}'
+```
+
+### 권한(최소 권한 원칙)
+- 읽기 권한(앱 실행 Role): `secretsmanager:GetSecretValue`, `secretsmanager:DescribeSecret`
+- 쓰기 권한(운영자만): `secretsmanager:PutSecretValue`
+
+### 운영 주의사항
+- 값 변경 후 앱 재기동/재배포가 필요할 수 있음
+- JSON 키는 앱 프로퍼티 바인딩과 동일한 이름을 사용
+
 ## 앱 사용법
 - 로컬 빌드:
   - `./gradlew clean bootJar`
@@ -16,6 +44,12 @@
   - `--next`: 후속 잡 제출 여부 (`true`/`false`, 기본 `true`)
 - 로그 확인:
   - 잡 시작/완료 로그가 출력되는지 확인
+
+## Playwright 준비
+- 브라우저 바이너리 설치: `./gradlew playwrightInstall`
+- 설정: `src/main/resources/application.yaml`의 `automation.playwright.*`로 브라우저/헤드리스/타임아웃 조정
+- 로컬에서 헤드리스 해제: `application-local.yaml`에 `automation.playwright.headless=false` (활성화: `SPRING_PROFILES_ACTIVE=local` 또는 `--spring.profiles.active=local`)
+- 컨테이너 실행 시 Playwright 브라우저가 포함된 이미지 사용 권장(필요하면 Dockerfile 조정)
 
 ## 워크플로우 실행 준비
 이 레포는 GitHub Actions로 빌드/푸시합니다.
@@ -95,3 +129,15 @@ Terraform 적용용(요약):
 2. GitHub Actions로 이미지 빌드 및 ECR 푸시
 3. Batch Job Definition이 `latest`를 사용 중인지 확인
 4. Batch Job 실행(`collect-draft`) 후 CloudWatch Logs에서 잡 로그 확인
+
+---
+## Google 서비스계정 json을 base64 문자열로 변환
+
+```shell
+# Linux
+base64 -w 0 sa.json > sa.json.b64
+# Mac OS
+base64 -i sa.json | tr -d '\n' > sa.json.b64
+# Windows
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("sa.json")) | Set-Content -NoNewline sa.json.b64
+```
