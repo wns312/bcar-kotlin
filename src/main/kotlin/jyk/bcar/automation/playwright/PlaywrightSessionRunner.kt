@@ -3,6 +3,7 @@ package jyk.bcar.automation.playwright
 import com.microsoft.playwright.BrowserType
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.Playwright
+import jyk.bcar.configuration.PlaywrightProperties
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory

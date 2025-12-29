@@ -1,4 +1,4 @@
-package jyk.bcar.automation.playwright
+package jyk.bcar.configuration
 
 import org.springframework.boot.context.properties.ConfigurationProperties
 
