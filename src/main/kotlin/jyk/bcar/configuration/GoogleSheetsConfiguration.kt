@@ -10,17 +10,17 @@ import org.springframework.context.annotation.Configuration
 import java.util.Base64
 
 @Configuration
-@EnableConfigurationProperties(GoogleSheetsProperties::class)
+@EnableConfigurationProperties(GoogleProperties::class)
 class GoogleSheetsConfiguration(
-    private val props: GoogleSheetsProperties,
+    private val props: GoogleProperties,
 ) {
     @Bean
     fun sheets(): Sheets {
-        require(props.b64.isNotBlank())
+        require(props.sa.base64.isNotBlank())
         val httpTransport = GoogleNetHttpTransport.newTrustedTransport()
         val jsonFactory = GsonFactory.getDefaultInstance()
 
-        val jsonBytes = Base64.getDecoder().decode(props.b64)
+        val jsonBytes = Base64.getDecoder().decode(props.sa.base64)
 
         val credential =
             GoogleCredentials
