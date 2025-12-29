@@ -1,0 +1,37 @@
+package jyk.bcar.configuration
+
+import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport
+import com.google.api.client.json.gson.GsonFactory
+import com.google.api.services.sheets.v4.Sheets
+import com.google.auth.oauth2.GoogleCredentials
+import org.springframework.boot.context.properties.EnableConfigurationProperties
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
+import java.util.Base64
+
+@Configuration
+@EnableConfigurationProperties(GoogleSheetsProperties::class)
+class GoogleSheetsConfiguration(
+    private val props: GoogleSheetsProperties,
+) {
+    @Bean
+    fun sheets(): Sheets {
+        require(props.b64.isNotBlank())
+        val httpTransport = GoogleNetHttpTransport.newTrustedTransport()
+        val jsonFactory = GsonFactory.getDefaultInstance()
+
+        val jsonBytes = Base64.getDecoder().decode(props.b64)
+
+        val credential =
+            GoogleCredentials
+                .fromStream(jsonBytes.inputStream())
+                .createScoped(listOf("https://www.googleapis.com/auth/spreadsheets"))
+
+        return Sheets
+            .Builder(httpTransport, jsonFactory) { request ->
+                credential.refreshIfExpired()
+                request.headers.authorization = "Bearer ${credential.accessToken.tokenValue}"
+            }.setApplicationName("spring-kotlin-sheets")
+            .build()
+    }
+}

@@ -129,3 +129,15 @@ Terraform 적용용(요약):
 2. GitHub Actions로 이미지 빌드 및 ECR 푸시
 3. Batch Job Definition이 `latest`를 사용 중인지 확인
 4. Batch Job 실행(`collect-draft`) 후 CloudWatch Logs에서 잡 로그 확인
+
+---
+## Google 서비스계정 json을 base64 문자열로 변환
+
+```shell
+# Linux
+base64 -w 0 sa.json > sa.json.b64
+# Mac OS
+base64 -i sa.json | tr -d '\n' > sa.json.b64
+# Windows
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("sa.json")) | Set-Content -NoNewline sa.json.b64
+```
