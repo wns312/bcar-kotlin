@@ -14,20 +14,15 @@ class DefaultJobChainDecider : JobChainDecider {
         if (!result.success) return emptyList()
 
         return when (result) {
-            is CollectDraftResult ->
-                listOf(
-                    NextJobRequest(
-                        jobName = "collect-detail",
-                        parameters = mapOf("draftIds" to result.draftIds.joinToString(",")),
-                    ),
+            is CollectDraftResult -> listOf(
+                NextJobRequest(jobName = "collect-detail"),
+            )
+            is AssignCarsResult -> result.carIds.map {
+                NextJobRequest(
+                    jobName = "sync-and-upload",
+                    parameters = mapOf("carId" to it),
                 )
-            is AssignCarsResult ->
-                result.carIds.map {
-                    NextJobRequest(
-                        jobName = "sync-and-upload",
-                        parameters = mapOf("carId" to it),
-                    )
-                }
+            }
             else -> emptyList()
         }
     }
