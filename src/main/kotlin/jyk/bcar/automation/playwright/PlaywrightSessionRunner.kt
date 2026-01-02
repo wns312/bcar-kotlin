@@ -5,8 +5,7 @@ import com.microsoft.playwright.BrowserType
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.Playwright
 import jyk.bcar.configuration.PlaywrightProperties
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.coroutineScope
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
@@ -16,39 +15,45 @@ class PlaywrightSessionRunner(
 ) {
     private val logger = LoggerFactory.getLogger(PlaywrightSessionRunner::class.java)
 
-    suspend fun <T> withSession(block: suspend (PlaywrightSession) -> T): T =
-        withContext(Dispatchers.IO) {
-            val playwright = Playwright.create()
-            val options =
-                BrowserType
-                    .LaunchOptions()
-                    .setHeadless(properties.headless)
-                    .setSlowMo(properties.slowMoMs)
+    suspend fun <T> withSession(block: suspend (PlaywrightSession) -> T): T {
+        val playwright = Playwright.create()
+        val options = BrowserType
+            .LaunchOptions()
+            .setHeadless(properties.headless)
+            .setSlowMo(properties.slowMoMs)
+            .setArgs(
+                listOf(
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                ),
+            )
 
-            val browser =
-                when (properties.browser.lowercase()) {
-                    "chromium" -> playwright.chromium().launch(options)
-                    "firefox" -> playwright.firefox().launch(options)
-                    "webkit" -> playwright.webkit().launch(options)
-                    else -> throw IllegalArgumentException("Unsupported Playwright browser: '${properties.browser}'")
-                }
+        val browser = when (properties.browser.lowercase()) {
+            "chromium" -> playwright.chromium().launch(options)
+            "firefox" -> playwright.firefox().launch(options)
+            "webkit" -> playwright.webkit().launch(options)
+            else -> throw IllegalArgumentException("Unsupported Playwright browser: '${properties.browser}'")
+        }
 
-            try {
+        return try {
+            coroutineScope {
                 block(PlaywrightSession(browser, properties))
+            }
+        } finally {
+            try {
+                browser.close()
+            } catch (ex: Exception) {
+                logger.warn("Failed to close Playwright browser cleanly.", ex)
             } finally {
                 try {
-                    browser.close()
+                    playwright.close()
                 } catch (ex: Exception) {
-                    logger.warn("Failed to close Playwright browser cleanly.", ex)
-                } finally {
-                    try {
-                        playwright.close()
-                    } catch (ex: Exception) {
-                        logger.warn("Failed to close Playwright cleanly.", ex)
-                    }
+                    logger.warn("Failed to close Playwright cleanly.", ex)
                 }
             }
         }
+    }
 }
 
 class PlaywrightSession internal constructor(
@@ -61,7 +66,9 @@ class PlaywrightSession internal constructor(
         try {
             val page = context.newPage()
             try {
-                return block(page)
+                return coroutineScope {
+                    block(page)
+                }
             } finally {
                 page.close()
             }

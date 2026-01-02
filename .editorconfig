@@ -1,0 +1,9 @@
+root = true
+
+[*.{kt,kts}]
+ktlint_standard_property-wrapping = disabled
+ktlint_standard_assignment-wrapping = disabled
+ktlint_standard_multiline-expression-wrapping = disabled
+ktlint_standard_parameter-list-wrapping = disabled
+ktlint_standard_function-signature = disabled
+ktlint_standard_function-expression-body = disabled

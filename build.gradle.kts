@@ -33,6 +33,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor:1.10.2")
     // AWS
     implementation(platform("io.awspring.cloud:spring-cloud-aws-dependencies:$springCloudAwsVersion"))
     implementation("io.awspring.cloud:spring-cloud-aws-starter-secrets-manager")
@@ -46,6 +47,10 @@ dependencies {
     implementation("com.google.http-client:google-http-client-jackson2:1.45.0")
     // Playwright
     implementation("com.microsoft.playwright:playwright:1.50.0")
+    // WebClient
+    implementation("org.springframework.boot:spring-boot-starter-webflux")
+    // JSoup
+    implementation("org.jsoup:jsoup:1.21.2")
 
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
