@@ -5,7 +5,6 @@ import com.microsoft.playwright.BrowserType
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.Playwright
 import jyk.bcar.configuration.PlaywrightProperties
-import kotlinx.coroutines.coroutineScope
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
@@ -37,9 +36,7 @@ class PlaywrightSessionRunner(
         }
 
         return try {
-            coroutineScope {
-                block(PlaywrightSession(browser, properties))
-            }
+            block(PlaywrightSession(browser, properties))
         } finally {
             try {
                 browser.close()
@@ -66,9 +63,7 @@ class PlaywrightSession internal constructor(
         try {
             val page = context.newPage()
             try {
-                return coroutineScope {
-                    block(page)
-                }
+                return block(page)
             } finally {
                 page.close()
             }

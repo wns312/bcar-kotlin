@@ -1,6 +1,8 @@
 spring:
   application:
     name: bcar
+  main:
+    web-application-type: none
 
 automation:
   playwright:
