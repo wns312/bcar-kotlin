@@ -2,8 +2,8 @@ package jyk.bcar.automation.job.act.draft
 
 import com.microsoft.playwright.Locator
 import com.microsoft.playwright.Page
-import com.microsoft.playwright.options.LoadState
 import com.microsoft.playwright.options.WaitForSelectorState
+import com.microsoft.playwright.options.WaitUntilState
 import jyk.bcar.automation.job.act.CarType
 
 class CollectDraftCarSearchRange(
@@ -16,8 +16,10 @@ class CollectDraftCarSearchRange(
             minPrice?.let { append("&c_price1=$it") }
             maxPrice?.let { append("&c_price2=$it") }
         }
-        page.navigate(url)
-        page.waitForLoadState(LoadState.NETWORKIDLE)
+        page.navigate(
+            url,
+            Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE),
+        )
 
         page.locator("#searchList").waitFor(
             Locator.WaitForOptions().apply {

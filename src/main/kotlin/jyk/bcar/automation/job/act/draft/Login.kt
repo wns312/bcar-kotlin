@@ -1,6 +1,7 @@
 package jyk.bcar.automation.job.act.draft
 
 import com.microsoft.playwright.Page
+import com.microsoft.playwright.options.WaitUntilState
 import jyk.bcar.domain.SourceAdminUser
 
 class Login(
@@ -12,7 +13,10 @@ class Login(
     }
 
     override suspend fun doAct(input: SourceAdminUser) {
-        page.navigate(COLLECT_LOGIN_URL)
+        page.navigate(
+            COLLECT_LOGIN_URL,
+            Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE),
+        )
         check(page.url() == COLLECT_LOGIN_URL)
 
         page.locator(".iptD").let { iptDs ->
@@ -22,7 +26,10 @@ class Login(
 
         page.locator("button[class=\"btn_login\"]").click()
         if (page.url() == COLLECT_ADMIN_LOGIN_OK_URL) {
-            page.navigate(DraftAct.COLLECT_ADMIN_URL)
+            page.navigate(
+                DraftAct.COLLECT_ADMIN_URL,
+                Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE),
+            )
         }
         check(page.url() == DraftAct.COLLECT_ADMIN_URL)
     }
