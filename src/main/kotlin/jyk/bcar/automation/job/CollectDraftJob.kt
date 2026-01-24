@@ -1,16 +1,15 @@
 package jyk.bcar.automation.job
 
-import jyk.bcar.automation.job.act.CarType
-import jyk.bcar.automation.job.act.draft.CollectCarListRequest
-import jyk.bcar.automation.job.act.draft.CollectCarSearchRangeRequest
-import jyk.bcar.automation.job.act.draft.CollectDraftCarList
-import jyk.bcar.automation.job.act.draft.CollectDraftCarSearchRange
-import jyk.bcar.automation.job.act.draft.Login
+import jyk.bcar.automation.job.act.sources.CarType
+import jyk.bcar.automation.job.act.sources.SourceAdminLogin
+import jyk.bcar.automation.job.act.sources.SourceAdminLoginResult
+import jyk.bcar.automation.job.act.sources.draft.CollectCarListRequest
+import jyk.bcar.automation.job.act.sources.draft.CollectCarSearchRangeRequest
+import jyk.bcar.automation.job.act.sources.draft.CollectDraftCarList
+import jyk.bcar.automation.job.act.sources.draft.CollectDraftCarSearchRange
 import jyk.bcar.automation.job.result.CollectDraftResult
 import jyk.bcar.automation.playwright.PlaywrightSessionRunner
-import jyk.bcar.client.GoogleSheetsClient
-import jyk.bcar.configuration.GoogleProperties
-import jyk.bcar.domain.DraftCar
+import jyk.bcar.repository.DraftCarRepository
 import jyk.bcar.repository.UserRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -22,15 +21,29 @@ import org.springframework.web.reactive.function.client.WebClient
 class CollectDraftJob(
     private val runner: PlaywrightSessionRunner,
     private val userRepository: UserRepository,
-    private val googleSheetsClient: GoogleSheetsClient,
-    private val googleProperties: GoogleProperties,
+    private val draftCarRepository: DraftCarRepository,
     private val webClient: WebClient,
 ) : AutomationJob<CollectDraftResult> {
     companion object {
-        private val busSearchRangeRequest = CollectCarSearchRangeRequest(carType = CarType.BUS, minPrice = 100, maxPrice = 4000)
-        private val truckSearchRangeRequest = CollectCarSearchRangeRequest(carType = CarType.TRUCK, minPrice = 100, maxPrice = 4000)
-        private val allSearchRangeRequest = CollectCarSearchRangeRequest(carType = CarType.ALL, minPrice = 100, maxPrice = 2500)
-        private const val DRAFT_SHEET_NAME = "Draft목록"
+        private const val DEFAULT_MIN_PRICE = 100
+        private const val BUS_TRUCK_MAX_PRICE = 4000
+        private const val ALL_MAX_PRICE = 2500
+
+        private val busSearchRangeRequest = CollectCarSearchRangeRequest(
+            carType = CarType.BUS,
+            minPrice = DEFAULT_MIN_PRICE,
+            maxPrice = BUS_TRUCK_MAX_PRICE,
+        )
+        private val truckSearchRangeRequest = CollectCarSearchRangeRequest(
+            carType = CarType.TRUCK,
+            minPrice = DEFAULT_MIN_PRICE,
+            maxPrice = BUS_TRUCK_MAX_PRICE,
+        )
+        private val allSearchRangeRequest = CollectCarSearchRangeRequest(
+            carType = CarType.ALL,
+            minPrice = DEFAULT_MIN_PRICE,
+            maxPrice = ALL_MAX_PRICE,
+        )
     }
 
     private val logger = LoggerFactory.getLogger(this::class.java)
@@ -40,60 +53,58 @@ class CollectDraftJob(
     override suspend fun execute(): CollectDraftResult = withContext(Dispatchers.IO) {
         logger.info("Collecting draft ids.")
 
-        val (busRange, truckRange, allRange) = collectRanges()
+        val (busRange, truckRange, allRange, loginResult) = collectRanges()
 
-        val collectDraftListJob = CollectDraftCarList(webClient)
+        val collectDraftListJob = CollectDraftCarList(webClient, loginResult.cookieHeader)
         val busDraftCars = collectDraftListJob.doAct(
-            CollectCarListRequest(carType = CarType.BUS, minPrice = 100, maxPrice = 4000, busRange),
+            CollectCarListRequest(
+                carType = CarType.BUS,
+                minPrice = DEFAULT_MIN_PRICE,
+                maxPrice = BUS_TRUCK_MAX_PRICE,
+                pageRange = busRange,
+            ),
         )
         val truckDraftCars = collectDraftListJob.doAct(
-            CollectCarListRequest(carType = CarType.TRUCK, minPrice = 100, maxPrice = 4000, truckRange),
+            CollectCarListRequest(
+                carType = CarType.TRUCK,
+                minPrice = DEFAULT_MIN_PRICE,
+                maxPrice = BUS_TRUCK_MAX_PRICE,
+                pageRange = truckRange,
+            ),
         )
         val allDraftCars = collectDraftListJob.doAct(
-            CollectCarListRequest(carType = CarType.ALL, minPrice = 100, maxPrice = 2500, allRange),
+            CollectCarListRequest(
+                carType = CarType.ALL,
+                minPrice = DEFAULT_MIN_PRICE,
+                maxPrice = ALL_MAX_PRICE,
+                pageRange = allRange,
+            ),
         )
 
-        uploadDrafts(busDraftCars + truckDraftCars + allDraftCars)
+        draftCarRepository.updateAll(busDraftCars + truckDraftCars + allDraftCars)
 
         CollectDraftResult(message = "drafts collected")
     }
 
-    private suspend fun collectRanges(): Triple<IntRange, IntRange, IntRange> {
+    private suspend fun collectRanges(): CollectDraftRangeResult {
         val sourceAdminUser = userRepository.findSourceAdminUser()
         return runner.withSession { session ->
             session.usePage {
-                Login(it).doAct(sourceAdminUser)
+                val loginResult = SourceAdminLogin(it).doAct(sourceAdminUser)
+
                 val busRange = CollectDraftCarSearchRange(it).doAct(input = busSearchRangeRequest)
                 val truckRange = CollectDraftCarSearchRange(it).doAct(input = truckSearchRangeRequest)
                 val allRange = CollectDraftCarSearchRange(it).doAct(input = allSearchRangeRequest)
 
-                Triple(busRange, truckRange, allRange)
+                CollectDraftRangeResult(busRange, truckRange, allRange, loginResult)
             }
         }
     }
-
-    private suspend fun uploadDrafts(drafts: List<DraftCar>) {
-        val header = listOf("차량 번호", "차량 제목", "차량 제조사", "상세페이지 번호", "중고차 사무실", "판매자", "판매자 휴대전화", "가격")
-
-        val rows = drafts.map {
-            listOf(it.carNumber, it.title, it.company, it.detailPageNum, it.agency, it.seller, it.sellerPhone, it.price)
-        }
-
-        val values: List<List<Any>> = buildList {
-            add(header)
-            addAll(rows)
-        }
-
-        googleSheetsClient.clearRange(
-            spreadsheetId = googleProperties.sheets.id,
-            sheet = DRAFT_SHEET_NAME,
-        )
-
-        googleSheetsClient.updateRange(
-            spreadsheetId = googleProperties.sheets.id,
-            sheet = DRAFT_SHEET_NAME,
-            rangeA1 = "A1",
-            values = values,
-        )
-    }
 }
+
+private data class CollectDraftRangeResult(
+    val busRange: IntRange,
+    val truckRange: IntRange,
+    val allRange: IntRange,
+    val loginResult: SourceAdminLoginResult,
+)

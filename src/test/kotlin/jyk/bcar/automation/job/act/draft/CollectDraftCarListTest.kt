@@ -1,5 +1,8 @@
 package jyk.bcar.automation.job.act.draft
 
+import jyk.bcar.automation.job.act.sources.CharSet
+import jyk.bcar.automation.job.act.sources.draft.DraftExtractor
+import jyk.bcar.automation.job.act.sources.draft.DraftExtractorRequest
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.fail
@@ -12,7 +15,7 @@ class CollectDraftCarListTest {
             ?: fail("draft_car_list.html not found in test resources")
         val request = DraftExtractorRequest(
             htmlBytes = stream.readAllBytes(),
-            charSet = DraftExtractor.CharSet.UTF_8,
+            charSet = CharSet.UTF_8,
             baseUri = "baseUri",
         )
         val parsed = DraftExtractor().doAct(request)

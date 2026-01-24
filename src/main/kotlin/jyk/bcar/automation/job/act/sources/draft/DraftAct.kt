@@ -1,4 +1,4 @@
-package jyk.bcar.automation.job.act.draft
+package jyk.bcar.automation.job.act.sources.draft
 
 import jyk.bcar.automation.job.act.JobAct
 

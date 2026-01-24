@@ -1,4 +1,4 @@
-package jyk.bcar.automation.job.act
+package jyk.bcar.automation.job.act.sources
 
 enum class CarType(
     val searchNum: Int,

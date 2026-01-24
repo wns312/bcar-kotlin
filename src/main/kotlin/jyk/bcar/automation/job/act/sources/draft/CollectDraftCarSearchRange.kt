@@ -1,10 +1,10 @@
-package jyk.bcar.automation.job.act.draft
+package jyk.bcar.automation.job.act.sources.draft
 
 import com.microsoft.playwright.Locator
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.options.WaitForSelectorState
 import com.microsoft.playwright.options.WaitUntilState
-import jyk.bcar.automation.job.act.CarType
+import jyk.bcar.automation.job.act.sources.CarType
 
 class CollectDraftCarSearchRange(
     private val page: Page,
