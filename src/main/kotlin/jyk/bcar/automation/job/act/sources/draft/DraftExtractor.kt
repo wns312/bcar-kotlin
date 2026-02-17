@@ -29,32 +29,38 @@ class DraftExtractor : DraftAct<DraftExtractorRequest, List<DraftCar>> {
 
         return document
             .select("table.t_list.mycar tbody tr")
-            .filter { it.select("td").isNotEmpty() }
-            .map { row -> extractDraftCar(row) }
+            .mapNotNull { row ->
+                val tds = row.select("td")
+                if (tds.isEmpty()) return@mapNotNull null
+                extractDraftCar(tds)
+            }
     }
 
-    private fun extractDraftCar(row: Element): DraftCar {
-        val tds = row.select("td")
-        val info = extractInfo(tds)
-        val title = extractTitle(tds)
+    private fun extractDraftCar(tds: Elements): DraftCar {
+        val td0 = requireTd(tds, 0)
+        val td2 = requireTd(tds, 2)
+        val td6 = requireTd(tds, 6)
+
+        val info = extractInfo(td2)
+        val title = extractTitle(td2)
         val company = extractCompany(title)
 
         return DraftCar(
             title = title,
             company = company,
-            carNumber = extractCarNumber(tds),
+            carNumber = extractCarNumber(td0),
             agency = info.agency,
             seller = info.seller,
             sellerPhone = info.sellerPhone,
-            detailPageNum = extractDetailPageNum(tds),
-            price = extractPrice(tds),
+            detailPageNum = extractDetailPageNum(td0),
+            price = extractPrice(td6),
         )
     }
 
-    private fun extractInfo(tds: Elements): ExtractedInfo {
+    private fun extractInfo(td2: Element): ExtractedInfo {
         val infoText = requireText(
             requireElement(
-                requireTd(tds, 2).selectFirst("a > div.txt_comment.type3"),
+                td2.selectFirst("a > div.txt_comment.type3"),
                 "info text element",
             ).text(),
             "info text",
@@ -75,10 +81,10 @@ class DraftExtractor : DraftAct<DraftExtractorRequest, List<DraftCar>> {
         )
     }
 
-    private fun extractTitle(tds: Elements): String {
+    private fun extractTitle(td2: Element): String {
         return requireText(
             requireElement(
-                requireTd(tds, 2).selectFirst("a > strong"),
+                td2.selectFirst("a > strong"),
                 "title element",
             ).text(),
             "title",
@@ -90,22 +96,22 @@ class DraftExtractor : DraftAct<DraftExtractorRequest, List<DraftCar>> {
         return if (rawCompany != "제네시스") rawCompany else "현대"
     }
 
-    private fun extractCarNumber(tds: Elements): String {
-        return requireText(requireTd(tds, 0).ownText(), "carNumber")
+    private fun extractCarNumber(td0: Element): String {
+        return requireText(td0.ownText(), "carNumber")
     }
 
-    private fun extractDetailPageNum(tds: Elements): String {
+    private fun extractDetailPageNum(td0: Element): String {
         return requireText(
             requireElement(
-                requireTd(tds, 0).selectFirst("span.checkbox > input"),
+                td0.selectFirst("span.checkbox > input"),
                 "detailPageNum element",
             ).attr("value"),
             "detailPageNum",
         )
     }
 
-    private fun extractPrice(tds: Elements): Int {
-        val rawPrice = requireText(requireTd(tds, 6).ownText(), "price")
+    private fun extractPrice(td6: Element): Int {
+        val rawPrice = requireText(td6.ownText(), "price")
         return requireNotNull(rawPrice.replace(",", "").toIntOrNull()) {
             "DraftExtractor: invalid price format"
         }
