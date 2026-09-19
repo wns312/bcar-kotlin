@@ -39,7 +39,7 @@ class CollectDetailJob(
         var done = 0
 
         try {
-            cars.chunked(50).forEach { chunk ->
+            cars.chunked(10).forEach { chunk ->
                 val changed = chunk.mapNotNull { car ->
                     val detail = getDetail(car)
                     done++
