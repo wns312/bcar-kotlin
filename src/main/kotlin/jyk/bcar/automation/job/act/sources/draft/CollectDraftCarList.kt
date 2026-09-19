@@ -1,5 +1,6 @@
 package jyk.bcar.automation.job.act.sources.draft
 
+import jyk.bcar.automation.job.act.retryOnFailure
 import jyk.bcar.automation.job.act.sources.CarType
 import jyk.bcar.automation.job.act.sources.CharSet
 import jyk.bcar.automation.job.act.sources.draft.DraftAct.Companion.COLLECT_ADMIN_URL
@@ -7,13 +8,11 @@ import jyk.bcar.domain.Car
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.slf4j.LoggerFactory
 import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.web.reactive.function.client.WebClientException
 
 class CollectDraftCarList(
     private val webClient: WebClient,
@@ -27,8 +26,6 @@ class CollectDraftCarList(
 
         // 소스 서버가 크롤링 도중 불규칙하게 connection reset. 처리량은 동시성과 무관(~75p/min, 서버 병목)
         private const val CONCURRENCY = 3
-        private const val MAX_ATTEMPTS = 3
-        private const val RETRY_PAUSE_MS = 60_000L
         private const val DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
     }
@@ -88,19 +85,7 @@ class CollectDraftCarList(
         return DraftExtractor().doAct(request)
     }
 
-    // 세마포어 permit을 쥔 채 쉬므로 재시도 중엔 전체 크롤링이 같이 느려진다 — 의도한 백오프
-    private suspend fun <T> retryOnFailure(block: suspend () -> T): T {
-        repeat(MAX_ATTEMPTS - 1) { attempt ->
-            try {
-                return block()
-            } catch (e: WebClientException) {
-                logger.warn("fetch failed (attempt ${attempt + 1}/$MAX_ATTEMPTS), pausing ${RETRY_PAUSE_MS}ms: ${e.message}")
-                delay(RETRY_PAUSE_MS)
-            }
-        }
-        return block()
-    }
-
+    // 세마포어 permit을 쥔 채 재시도 대기하므로 그동안 전체 크롤링이 같이 느려진다 — 의도한 백오프
     private suspend fun fetchBytes(url: String, refererUrl: String): ByteArray =
         webClient
             .get()
