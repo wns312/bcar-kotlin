@@ -5,6 +5,7 @@ import jyk.bcar.automation.job.act.retryOnFailure
 import kotlinx.coroutines.reactor.awaitSingle
 import org.springframework.http.HttpHeaders
 import org.springframework.web.reactive.function.client.WebClient
+import kotlin.time.Duration.Companion.seconds
 
 class CollectDetailPageBytes(
     private val webClient: WebClient,
@@ -14,7 +15,8 @@ class CollectDetailPageBytes(
         private const val REFERER_URI = "http://thebestcar.kr/mypage/mycar.html"
     }
 
-    override suspend fun doAct(input: CollectDetailPageBytesRequest): ByteArray = retryOnFailure {
+    // IP 차단이면 같은 IP로 오래 기다려도 안 풀림. 짧게만 재시도하고 죽어서 Batch retryStrategy(새 컨테이너=새 IP)에 맡긴다
+    override suspend fun doAct(input: CollectDetailPageBytesRequest): ByteArray = retryOnFailure(maxAttempts = 2, pause = 10.seconds) {
         webClient
             .get()
             .uri("${BASE_URI}${input.detailPageNum}")

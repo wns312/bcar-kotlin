@@ -26,11 +26,14 @@ class DynamoDbCarRepository(
                 .build()
     }
 
-    override suspend fun findAll(): List<Car> {
+    override suspend fun findAll(segment: Int, totalSegments: Int): List<Car> {
+        require(segment in 0 until totalSegments) { "segment=$segment out of range for totalSegments=$totalSegments" }
         val cars = mutableListOf<Car>()
         client
-            .scanPaginator { it.tableName(properties.carsTable) }
-            .items()
+            .scanPaginator {
+                it.tableName(properties.carsTable)
+                if (totalSegments > 1) it.segment(segment).totalSegments(totalSegments)
+            }.items()
             .subscribe { cars += itemToCar(it) }
             .await()
         return cars

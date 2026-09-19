@@ -32,3 +32,9 @@ variable "batch_max_vcpus" {
   description = "Maximum vCPUs for Batch compute environment."
   default     = 256
 }
+
+variable "batch_detail_max_vcpus" {
+  type        = number
+  description = "Maximum vCPUs for the detail-collection compute environment (= max concurrent detail child jobs)."
+  default     = 2
+}
