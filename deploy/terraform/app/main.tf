@@ -179,6 +179,38 @@ resource "aws_iam_role_policy" "batch_job_secrets_read" {
   })
 }
 
+resource "aws_dynamodb_table" "cars" {
+  name         = "${local.name_prefix}-cars"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "carNumber"
+
+  attribute {
+    name = "carNumber"
+    type = "S"
+  }
+
+  tags = local.tags
+}
+
+resource "aws_iam_role_policy" "batch_job_dynamodb" {
+  name = "${local.name_prefix}-batch-job-dynamodb"
+  role = aws_iam_role.batch_job.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:Scan",
+          "dynamodb:BatchWriteItem"
+        ]
+        Resource = aws_dynamodb_table.cars.arn
+      }
+    ]
+  })
+}
+
 resource "aws_batch_compute_environment" "main" {
   compute_environment_name = "${local.name_prefix}-ce"
   type                     = "MANAGED"

@@ -1,0 +1,60 @@
+package jyk.bcar.domain
+
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
+
+class CarTest {
+    private fun car(number: String, price: Int = 1000, isActive: Boolean = true, detail: CarDetail? = null) =
+        Car(
+            carNumber = number,
+            title = "현대 유니버스",
+            company = "현대",
+            detailPageNum = "1",
+            agency = "상사",
+            seller = "홍길동",
+            sellerPhone = "010-0000-0000",
+            price = price,
+            isActive = isActive,
+            detail = detail,
+        )
+
+    private val detail = CarDetail(
+        category = "대형",
+        displacement = 2970,
+        modelYear = "2019-03",
+        mileage = 1,
+        color = "검정",
+        gearBox = "오토",
+        fuelType = "경유",
+        presentationNumber = "p",
+        hasAccident = "무사고",
+        registerNumber = "r",
+        presentationsDate = "2025-02-01",
+        hasSeizure = false,
+        hasMortgage = false,
+        carCheckSrc = "",
+        images = emptyList(),
+    )
+
+    @Test
+    fun reconcileReturnsOnlyChangedCars() {
+        val existing = listOf(
+            car("same", detail = detail),
+            car("priceChanged", price = 1000, detail = detail),
+            car("gone"),
+            car("alreadyInactive", isActive = false),
+        )
+        val collected = listOf(
+            car("same"),
+            car("priceChanged", price = 900),
+            car("new"),
+        )
+
+        val changes = Car.reconcile(existing, collected).associateBy { it.carNumber }
+
+        assertEquals(setOf("priceChanged", "new", "gone"), changes.keys)
+        assertEquals(detail, changes.getValue("priceChanged").detail)
+        assertEquals(900, changes.getValue("priceChanged").price)
+        assertEquals(false, changes.getValue("gone").isActive)
+    }
+}

@@ -9,7 +9,8 @@ import jyk.bcar.automation.job.act.sources.draft.CollectDraftCarList
 import jyk.bcar.automation.job.act.sources.draft.CollectDraftCarSearchRange
 import jyk.bcar.automation.job.result.CollectDraftResult
 import jyk.bcar.automation.playwright.PlaywrightSessionRunner
-import jyk.bcar.repository.DraftCarRepository
+import jyk.bcar.domain.Car
+import jyk.bcar.repository.CarRepository
 import jyk.bcar.repository.UserRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,7 +22,7 @@ import org.springframework.web.reactive.function.client.WebClient
 class CollectDraftJob(
     private val runner: PlaywrightSessionRunner,
     private val userRepository: UserRepository,
-    private val draftCarRepository: DraftCarRepository,
+    private val carRepository: CarRepository,
     private val webClient: WebClient,
 ) : AutomationJob<CollectDraftResult> {
     companion object {
@@ -81,7 +82,10 @@ class CollectDraftJob(
             ),
         )
 
-        draftCarRepository.updateAll(busDraftCars + truckDraftCars + allDraftCars)
+        val collected = busDraftCars + truckDraftCars + allDraftCars
+        val changes = Car.reconcile(existing = carRepository.findAll(), collected = collected)
+        carRepository.saveAll(changes)
+        logger.info("Drafts reconciled: collected=${collected.size}, changed=${changes.size}")
 
         CollectDraftResult(message = "drafts collected")
     }

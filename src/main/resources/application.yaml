@@ -10,3 +10,6 @@ automation:
     headless: true
     slow-mo-ms: 0
     timeout-ms: 30000
+
+dynamodb:
+  cars-table: bcar-dev-cars
