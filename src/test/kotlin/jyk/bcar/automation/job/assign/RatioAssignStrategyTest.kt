@@ -48,19 +48,32 @@ class RatioAssignStrategyTest {
     }
 
     @Test
-    fun keepsHeldCarsAndReleasesPendingExcessMostExpensiveFirst() {
+    fun releasesExcessNotUploadedFirstThenUploadedMostExpensiveFirst() {
         val held = listOf(
             car("h1", 1100, assignedUserId = "a", status = UploadStatus.PENDING),
-            car("h2", 1200, assignedUserId = "a", status = UploadStatus.PENDING),
+            car("h2", 1200, assignedUserId = "a", status = UploadStatus.UPLOADED),
             car("h3", 1300, assignedUserId = "a", status = UploadStatus.UPLOADED),
-            car("h4", 1000, assignedUserId = "a", status = UploadStatus.PENDING),
+            car("h4", 1000, assignedUserId = "a", status = UploadStatus.FAILED),
+            car("h5", 1050, assignedUserId = "a", status = UploadStatus.PENDING),
+            car("removing", 1000, assignedUserId = "a", status = UploadStatus.NEEDS_REMOVAL),
             car("inactive", 1000, isActive = false, assignedUserId = "a", status = UploadStatus.PENDING),
         )
 
         val plan = strategy.plan(listOf(a), held + over(10))
 
-        assertEquals(listOf("h2", "h1"), plan.release.map { it.carNumber })
+        assertEquals(listOf("h1", "h5", "h4"), plan.release.map { it.carNumber })
         assertEquals(mapOf(DOMESTIC_OVER_1300 to 2), plan.categories(a))
+    }
+
+    @Test
+    fun releasedUploadedCarsStayOutOfPool() {
+        val held = (1..4).map { car("h$it", 1000 + it, assignedUserId = "a", status = UploadStatus.UPLOADED) }
+
+        val plan = strategy.plan(listOf(a, b), held + over(4))
+
+        assertEquals(2, plan.release.size)
+        assertEquals(mapOf(DOMESTIC_OVER_1300 to 2), plan.categories(b))
+        assertEquals(2, plan.shortfall)
     }
 
     @Test

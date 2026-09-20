@@ -86,4 +86,15 @@ class CarTest {
         assertEquals(UploadStatus.NEEDS_REMOVAL, changes.getValue("goneUploaded").uploadStatus)
         assertEquals(UploadStatus.PENDING, changes.getValue("gonePending").uploadStatus)
     }
+
+    @Test
+    fun releaseKeepsAssignmentOnlyWhenUploaded() {
+        val uploaded = car("x", assignedUserId = "u1", uploadStatus = UploadStatus.UPLOADED).release()
+        val pending = car("y", assignedUserId = "u1", uploadStatus = UploadStatus.PENDING).release()
+
+        assertEquals("u1", uploaded.assignedUserId)
+        assertEquals(UploadStatus.NEEDS_REMOVAL, uploaded.uploadStatus)
+        assertEquals(null, pending.assignedUserId)
+        assertEquals(UploadStatus.NONE, pending.uploadStatus)
+    }
 }

@@ -35,7 +35,13 @@ data class Car(
     fun assignTo(user: TargetAdminUser, now: Instant): Car =
         copy(assignedUserId = user.id, assignedAt = now, targetSite = user.targetSite, uploadStatus = UploadStatus.PENDING)
 
-    fun unassign(): Car = copy(assignedUserId = null, assignedAt = null, targetSite = null, uploadStatus = UploadStatus.NONE)
+    /** 올라가 있는 차는 내릴 때까지 할당 정보를 유지한다 */
+    fun release(): Car =
+        if (uploadStatus == UploadStatus.UPLOADED) {
+            copy(uploadStatus = UploadStatus.NEEDS_REMOVAL)
+        } else {
+            copy(assignedUserId = null, assignedAt = null, targetSite = null, uploadStatus = UploadStatus.NONE)
+        }
 
     private fun withDraftOf(fresh: Car): Car =
         copy(

@@ -77,7 +77,7 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 
 계산은 `RatioAssignStrategy`(`AssignStrategy` 빈 교체 가능):
 1. 유저별 카테고리 목표 = `quota × assign.ratio`. 카테고리는 `CarCategory.of` (수입 > 화물 > 트럭 > 국산 ≤1300 > 국산 >1300)
-2. 목표 초과 카테고리는 `PENDING` 차량을 비싼 순으로 할당 해제, 미달은 부족분만큼 요구
+2. 목표 초과 카테고리는 비싼 순으로 할당 해제(안 올라간 것부터), 미달은 부족분만큼 요구. `UPLOADED`는 `NEEDS_REMOVAL`로 표시만 하고 내릴 때까지 할당 정보 유지
 3. 카테고리별 공급(미할당 + 해제분) vs 수요. 모자라면 유저 요구량 비례로 나눔
 4. 그래도 모자란 몫은 `assign.fallback-order` 카테고리의 남은 공급으로 채움
 5. 실제 차량은 싼 순으로 유저를 돌아가며 한 대씩

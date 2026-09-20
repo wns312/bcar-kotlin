@@ -27,7 +27,7 @@ class AssignCarsJob(
 
         val now = Instant.now()
         val assigned = plan.assign.flatMap { (user, picked) -> picked.map { it.assignTo(user, now) } }
-        val released = plan.release.map { it.unassign() }
+        val released = plan.release.map { it.release() }
         carRepository.saveAll(assigned + released)
 
         return AssignCarsResult(
