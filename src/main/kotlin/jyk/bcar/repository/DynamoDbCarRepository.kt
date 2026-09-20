@@ -3,50 +3,63 @@ package jyk.bcar.repository
 import jyk.bcar.configuration.DynamoDbProperties
 import jyk.bcar.domain.Car
 import jyk.bcar.domain.CarDetail
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.future.await
+import kotlinx.coroutines.withContext
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration
 import software.amazon.awssdk.regions.Region
-import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
+import software.amazon.awssdk.services.dynamodb.DynamoDbClient
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.WriteRequest
+import java.time.Duration
 
 @Component
 class DynamoDbCarRepository(
     private val properties: DynamoDbProperties,
-    private val client: DynamoDbAsyncClient = defaultClient(),
+    private val client: DynamoDbClient = defaultClient(),
 ) : CarRepository {
     companion object {
         private const val BATCH_WRITE_LIMIT = 25
 
-        fun defaultClient(): DynamoDbAsyncClient =
-            DynamoDbAsyncClient
+        // Fargate에서 async(netty) 클라이언트가 응답 없이 매달린 적 있음. Secrets Manager와 같은 sync(apache) 경로 + 타임아웃
+        fun defaultClient(): DynamoDbClient =
+            DynamoDbClient
                 .builder()
                 .region(Region.AP_NORTHEAST_2)
-                .build()
+                .overrideConfiguration(
+                    ClientOverrideConfiguration
+                        .builder()
+                        .apiCallTimeout(Duration.ofMinutes(2))
+                        .apiCallAttemptTimeout(Duration.ofSeconds(30))
+                        .build(),
+                ).build()
     }
 
-    override suspend fun findAll(segment: Int, totalSegments: Int): List<Car> {
+    private val logger = LoggerFactory.getLogger(this::class.java)
+
+    override suspend fun findAll(segment: Int, totalSegments: Int): List<Car> = withContext(Dispatchers.IO) {
         require(segment in 0 until totalSegments) { "segment=$segment out of range for totalSegments=$totalSegments" }
-        val cars = mutableListOf<Car>()
-        client
+        val cars = client
             .scanPaginator {
                 it.tableName(properties.carsTable)
                 if (totalSegments > 1) it.segment(segment).totalSegments(totalSegments)
             }.items()
-            .subscribe { cars += itemToCar(it) }
-            .await()
-        return cars
+            .map(::itemToCar)
+        logger.info("Scanned ${cars.size} cars from ${properties.carsTable} (segment $segment/$totalSegments)")
+        cars
     }
 
-    override suspend fun saveAll(cars: List<Car>) {
+    override suspend fun saveAll(cars: List<Car>) = withContext(Dispatchers.IO) {
+        logger.info("Saving ${cars.size} cars to ${properties.carsTable}")
         cars.chunked(BATCH_WRITE_LIMIT).forEach { chunk ->
             val writes = chunk.map { car ->
                 WriteRequest.builder().putRequest { it.item(carToItem(car)) }.build()
             }
             var unprocessed = mapOf(properties.carsTable to writes)
             while (unprocessed.isNotEmpty()) {
-                unprocessed = client.batchWriteItem { it.requestItems(unprocessed) }.await().unprocessedItems()
+                unprocessed = client.batchWriteItem { it.requestItems(unprocessed) }.unprocessedItems()
                 if (unprocessed.isNotEmpty()) delay(200)
             }
         }
