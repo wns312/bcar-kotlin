@@ -20,6 +20,7 @@ class AssignCarsJob(
 
     override suspend fun execute(): AssignCarsResult {
         val users = userRepository.findAllTargetAdminUsers()
+        if (users.isEmpty()) return AssignCarsResult(assigned = 0, success = false, message = "no target admin users")
         val cars = carRepository.findAll()
 
         val plan = strategy.plan(users, cars)
