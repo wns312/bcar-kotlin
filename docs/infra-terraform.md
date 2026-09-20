@@ -49,7 +49,26 @@ terraform plan -var-file=env/prod.tfvars
 terraform apply -var-file=env/prod.tfvars
 ```
 
-## 4) 운영 체크포인트
+## 4) GitHub Actions로 plan/apply (권장)
+
+워크플로우: [`.github/workflows/terraform.yaml`](../.github/workflows/terraform.yaml)
+
+- PR이 `deploy/terraform/app/**`를 건드리면 dev·prod **plan**이 자동으로 돈다 (fmt/validate 포함)
+- apply는 Actions 탭 → Terraform → Run workflow → `environment`(dev/prod) + `action=apply`
+- 러너는 매번 새로 init하므로 로컬에서 dev/prod state가 섞이는 실수(`-reconfigure` 누락)가 없다
+- prod Environment에 required reviewer를 걸어두면 apply 전 승인 단계가 생긴다
+- 필요한 Environment 시크릿은 CI/CD와 동일(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`). 단 해당 IAM 유저에 Terraform이 만지는 리소스(VPC/ECR/Batch/IAM/CloudWatch Logs/DynamoDB/Secrets Manager)와 state 버킷·lock 테이블 권한이 있어야 한다
+
+## 5) 로컬에서 직접 돌릴 때
+
+같은 디렉터리에서 dev/prod를 오가므로 **환경 전환 시 반드시 `-reconfigure`**. init이 실패한 채 plan을 돌리면 직전 환경 state에 대해 plan이 나온다.
+
+```bash
+cd deploy/terraform/app
+terraform init -reconfigure -backend-config=backend-dev.hcl && terraform plan -var-file=env/dev.tfvars
+```
+
+## 6) 운영 체크포인트
 
 - backend 설정(`backend-*.hcl`)과 var 파일(`env/*.tfvars`) 환경 매칭 확인
 - `state` 버킷/락 테이블은 계정당 1회 구성 원칙 유지

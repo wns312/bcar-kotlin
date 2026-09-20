@@ -1,0 +1,82 @@
+name: Terraform
+
+on:
+  pull_request:
+    paths:
+      - "deploy/terraform/app/**"
+      - ".github/workflows/terraform.yaml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [dev, prod]
+      action:
+        description: "plan or apply"
+        required: true
+        type: choice
+        options: [plan, apply]
+        default: plan
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  # PR: dev/prod 둘 다 plan만. 러너는 매번 새로 init하므로 로컬처럼 state가 섞일 일이 없다
+  plan:
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, prod]
+    environment: ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/terraform/app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.1"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend-config=backend-${{ matrix.environment }}.hcl
+      - run: terraform validate
+      - run: terraform plan -var-file=env/${{ matrix.environment }}.tfvars -lock-timeout=5m -no-color
+
+  # 수동: environment 선택 → 그 Environment의 시크릿/보호 규칙(승인자)으로 실행
+  dispatch:
+    if: github.event_name == 'workflow_dispatch'
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/terraform/app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.1"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - run: terraform init -backend-config=backend-${{ inputs.environment }}.hcl
+      - run: terraform plan -var-file=env/${{ inputs.environment }}.tfvars -lock-timeout=5m -no-color -out=tfplan
+
+      - if: inputs.action == 'apply'
+        run: terraform apply -lock-timeout=5m -no-color tfplan
