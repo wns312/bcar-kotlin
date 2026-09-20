@@ -69,7 +69,7 @@ resource "aws_security_group" "batch" {
 }
 
 resource "aws_ecr_repository" "app" {
-  name                 = "${local.name_prefix}"
+  name                 = local.name_prefix
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -87,7 +87,7 @@ resource "aws_cloudwatch_log_group" "batch" {
 }
 
 resource "aws_secretsmanager_secret" "app_sensitive" {
-  name        = "${local.name_prefix}"
+  name        = local.name_prefix
   description = "Application config secrets for ${local.name_prefix}."
 
   tags = local.tags
@@ -179,6 +179,38 @@ resource "aws_iam_role_policy" "batch_job_secrets_read" {
   })
 }
 
+resource "aws_dynamodb_table" "cars" {
+  name         = "${local.name_prefix}-cars"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "carNumber"
+
+  attribute {
+    name = "carNumber"
+    type = "S"
+  }
+
+  tags = local.tags
+}
+
+resource "aws_iam_role_policy" "batch_job_dynamodb" {
+  name = "${local.name_prefix}-batch-job-dynamodb"
+  role = aws_iam_role.batch_job.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:Scan",
+          "dynamodb:BatchWriteItem"
+        ]
+        Resource = aws_dynamodb_table.cars.arn
+      }
+    ]
+  })
+}
+
 resource "aws_batch_compute_environment" "main" {
   compute_environment_name = "${local.name_prefix}-ce"
   type                     = "MANAGED"
@@ -220,15 +252,38 @@ resource "aws_batch_job_queue" "sync_and_upload" {
   tags = local.tags
 }
 
-resource "aws_batch_job_definition" "main" {
-  name = "${local.name_prefix}-job"
-  type = "container"
+# detail 수집 전용. max_vcpus가 곧 동시 실행 자식 잡 수(자식 1vCPU) — 소스 서버 부하/IP 차단 조절 노브
+resource "aws_batch_compute_environment" "detail" {
+  compute_environment_name = "${local.name_prefix}-detail-ce"
+  type                     = "MANAGED"
+  service_role             = aws_iam_role.batch_service.arn
 
-  platform_capabilities = ["FARGATE"]
+  compute_resources {
+    type               = "FARGATE"
+    max_vcpus          = var.batch_detail_max_vcpus
+    subnets            = aws_subnet.public[*].id
+    security_group_ids = [aws_security_group.batch.id]
+  }
 
-  container_properties = jsonencode({
+  tags = local.tags
+}
+
+resource "aws_batch_job_queue" "detail" {
+  name     = "${local.name_prefix}-detail-queue"
+  state    = "ENABLED"
+  priority = 1
+
+  compute_environment_order {
+    order               = 1
+    compute_environment = aws_batch_compute_environment.detail.arn
+  }
+
+  tags = local.tags
+}
+
+locals {
+  container_properties = {
     image            = "${aws_ecr_repository.app.repository_url}:latest"
-    command          = ["--job=collect-draft", "--next=true"]
     executionRoleArn = aws_iam_role.batch_execution.arn
     jobRoleArn       = aws_iam_role.batch_job.arn
     environment = [
@@ -258,7 +313,18 @@ resource "aws_batch_job_definition" "main" {
     networkConfiguration = {
       assignPublicIp = "ENABLED"
     }
-  })
+  }
+}
+
+resource "aws_batch_job_definition" "main" {
+  name = "${local.name_prefix}-job"
+  type = "container"
+
+  platform_capabilities = ["FARGATE"]
+
+  container_properties = jsonencode(merge(local.container_properties, {
+    command = ["--job=collect-draft", "--next=true"]
+  }))
 
   retry_strategy {
     attempts = 3
@@ -266,6 +332,28 @@ resource "aws_batch_job_definition" "main" {
 
   timeout {
     attempt_duration_seconds = 900
+  }
+
+  tags = local.tags
+}
+
+# array job으로 제출: --array-properties size=N, 커맨드 --shards=N. 자식 하나가 수천 건이라 timeout을 길게
+resource "aws_batch_job_definition" "detail" {
+  name = "${local.name_prefix}-detail-job"
+  type = "container"
+
+  platform_capabilities = ["FARGATE"]
+
+  container_properties = jsonencode(merge(local.container_properties, {
+    command = ["--job=collect-detail", "--next=false", "--shards=1"]
+  }))
+
+  retry_strategy {
+    attempts = 3
+  }
+
+  timeout {
+    attempt_duration_seconds = 10800
   }
 
   tags = local.tags

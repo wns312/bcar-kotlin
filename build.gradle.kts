@@ -40,6 +40,7 @@ dependencies {
     implementation("software.amazon.awssdk:bom:$awsSdkVersion")
     implementation("software.amazon.awssdk:netty-nio-client:$awsSdkVersion")
     implementation("software.amazon.awssdk:batch:$awsSdkVersion")
+    implementation("software.amazon.awssdk:dynamodb:$awsSdkVersion")
     // Google
     implementation("com.google.auth:google-auth-library-oauth2-http:1.23.0")
     implementation("com.google.api-client:google-api-client:2.6.0")

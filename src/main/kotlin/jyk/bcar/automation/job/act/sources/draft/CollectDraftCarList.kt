@@ -1,9 +1,10 @@
 package jyk.bcar.automation.job.act.sources.draft
 
+import jyk.bcar.automation.job.act.retryOnFailure
 import jyk.bcar.automation.job.act.sources.CarType
 import jyk.bcar.automation.job.act.sources.CharSet
 import jyk.bcar.automation.job.act.sources.draft.DraftAct.Companion.COLLECT_ADMIN_URL
-import jyk.bcar.domain.DraftCar
+import jyk.bcar.domain.Car
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -16,20 +17,23 @@ import org.springframework.web.reactive.function.client.WebClient
 class CollectDraftCarList(
     private val webClient: WebClient,
     private val cookieHeader: String,
-) : DraftAct<CollectCarListRequest, List<DraftCar>> {
+) : DraftAct<CollectCarListRequest, List<Car>> {
     companion object {
         private const val SOURCE_SEARCH_PAGE = "http://thebestcar.kr/mypage/_inc_carList.html"
         private const val DEFAULT_PARAMS = "searchChecker=1&listView=y&pageSize=100"
         private const val SOURCE_SEARCH_BASE = "$SOURCE_SEARCH_PAGE?$DEFAULT_PARAMS"
         private const val SOURCE_REFERER_BASE = "$COLLECT_ADMIN_URL?$DEFAULT_PARAMS"
+
+        // 소스 서버가 크롤링 도중 불규칙하게 connection reset. 처리량은 동시성과 무관(~75p/min, 서버 병목)
+        private const val CONCURRENCY = 3
         private const val DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
     }
 
     private val logger = LoggerFactory.getLogger(this::class.java)
 
-    override suspend fun doAct(input: CollectCarListRequest): List<DraftCar> = coroutineScope {
-        val semaphore = Semaphore(10)
+    override suspend fun doAct(input: CollectCarListRequest): List<Car> = coroutineScope {
+        val semaphore = Semaphore(CONCURRENCY)
         input.pageRange.map { pageNum ->
             async {
                 semaphore.withPermit {
@@ -69,8 +73,21 @@ class CollectDraftCarList(
         append("&c_cho=${request.carType.searchNum}&page=${request.page}")
     }
 
-    private suspend fun fetchList(url: String, refererUrl: String): List<DraftCar> {
-        val bytes = webClient
+    private suspend fun fetchList(url: String, refererUrl: String): List<Car> {
+        val bytes = retryOnFailure { fetchBytes(url, refererUrl) }
+
+        val request = DraftExtractorRequest(
+            htmlBytes = bytes,
+            charSet = CharSet.EUC_KR,
+            baseUri = url,
+        )
+
+        return DraftExtractor().doAct(request)
+    }
+
+    // 세마포어 permit을 쥔 채 재시도 대기하므로 그동안 전체 크롤링이 같이 느려진다 — 의도한 백오프
+    private suspend fun fetchBytes(url: String, refererUrl: String): ByteArray =
+        webClient
             .get()
             .uri(url)
             .header(
@@ -90,15 +107,6 @@ class CollectDraftCarList(
             .retrieve()
             .bodyToMono(ByteArray::class.java)
             .awaitSingle()
-
-        val request = DraftExtractorRequest(
-            htmlBytes = bytes,
-            charSet = CharSet.EUC_KR,
-            baseUri = url,
-        )
-
-        return DraftExtractor().doAct(request)
-    }
 }
 
 data class CollectCarSearchPageRequest(

@@ -10,13 +10,17 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.core.io.buffer.DefaultDataBufferFactory
 import org.springframework.http.HttpHeaders
+import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
 import org.springframework.web.reactive.function.client.ClientRequest
 import org.springframework.web.reactive.function.client.ClientResponse
 import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.WebClientRequestException
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
+import java.io.IOException
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicInteger
 
 class CollectDraftCarListTest {
     @Test
@@ -76,6 +80,33 @@ class CollectDraftCarListTest {
             assertTrue(referer!!.contains("/mypage/mycar.html?searchChecker=1&listView=y&pageSize=100"))
             assertTrue(referer.contains("&c_cho=4"))
         }
+    }
+
+    @Test
+    fun retryPageAfterConnectionFailure() = runTest {
+        val attempts = AtomicInteger()
+        val webClient = WebClient
+            .builder()
+            .exchangeFunction { request ->
+                if (attempts.incrementAndGet() == 1) {
+                    Mono.error(WebClientRequestException(IOException("Connection reset"), HttpMethod.GET, request.url(), HttpHeaders.EMPTY))
+                } else {
+                    Mono.just(
+                        ClientResponse
+                            .create(HttpStatus.OK)
+                            .header(HttpHeaders.CONTENT_TYPE, "text/html; charset=US-ASCII")
+                            .body(Flux.just(DefaultDataBufferFactory.sharedInstance.wrap(singleRowHtml().toByteArray(Charsets.US_ASCII))))
+                            .build(),
+                    )
+                }
+            }.build()
+
+        val parsed = CollectDraftCarList(webClient, "SESSION=unit-test").doAct(
+            CollectCarListRequest(carType = CarType.BUS, minPrice = 1000, maxPrice = 5000, pageRange = 1..1),
+        )
+
+        assertEquals(1, parsed.size)
+        assertEquals(2, attempts.get())
     }
 
     private fun singleRowHtml(): String {

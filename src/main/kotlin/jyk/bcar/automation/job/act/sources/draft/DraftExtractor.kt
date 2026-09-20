@@ -1,13 +1,13 @@
 package jyk.bcar.automation.job.act.sources.draft
 
 import jyk.bcar.automation.job.act.sources.CharSet
-import jyk.bcar.domain.DraftCar
+import jyk.bcar.domain.Car
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 import java.io.ByteArrayInputStream
 
-class DraftExtractor : DraftAct<DraftExtractorRequest, List<DraftCar>> {
+class DraftExtractor : DraftAct<DraftExtractorRequest, List<Car>> {
     private data class ExtractedInfo(
         val agency: String,
         val seller: String,
@@ -17,7 +17,7 @@ class DraftExtractor : DraftAct<DraftExtractorRequest, List<DraftCar>> {
     /**
      * baseUri: 문서에 상대경로로 들어간 링크를 baseUri를 붙여줌
      * */
-    override suspend fun doAct(input: DraftExtractorRequest): List<DraftCar> {
+    override suspend fun doAct(input: DraftExtractorRequest): List<Car> {
         val document = Jsoup.parse(
             // in =
             ByteArrayInputStream(input.htmlBytes),
@@ -36,7 +36,7 @@ class DraftExtractor : DraftAct<DraftExtractorRequest, List<DraftCar>> {
             }
     }
 
-    private fun extractDraftCar(tds: Elements): DraftCar {
+    private fun extractDraftCar(tds: Elements): Car {
         val td0 = requireTd(tds, 0)
         val td2 = requireTd(tds, 2)
         val td6 = requireTd(tds, 6)
@@ -45,7 +45,7 @@ class DraftExtractor : DraftAct<DraftExtractorRequest, List<DraftCar>> {
         val title = extractTitle(td2)
         val company = extractCompany(title)
 
-        return DraftCar(
+        return Car(
             title = title,
             company = company,
             carNumber = extractCarNumber(td0),

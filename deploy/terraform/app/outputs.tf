@@ -42,3 +42,13 @@ output "batch_log_group_name" {
   description = "CloudWatch log group name for Batch."
   value       = aws_cloudwatch_log_group.batch.name
 }
+
+output "batch_detail_job_queue_arn" {
+  description = "Detail-collection job queue ARN."
+  value       = aws_batch_job_queue.detail.arn
+}
+
+output "batch_detail_job_definition_arn" {
+  description = "Detail-collection job definition ARN."
+  value       = aws_batch_job_definition.detail.arn
+}
