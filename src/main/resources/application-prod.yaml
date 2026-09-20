@@ -4,7 +4,7 @@ spring:
 dynamodb:
   cars-table: bcar-prod-cars
 batch:
-  detail-shards: 12
+  detail-shards: 16
   jobs:
     collect-detail:
       queue: bcar-prod-detail-queue
