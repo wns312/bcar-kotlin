@@ -83,7 +83,7 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 5. 실제 차량은 싼 순으로 유저를 돌아가며 한 대씩
 
 새로 할당된 차량은 `assignedUserId`, `targetSite`, `assignedAt`, `uploadStatus=PENDING`이 찍힌다.
-소스에서 사라진 차량이 `UPLOADED`였으면 `NEEDS_REMOVAL`로 표시된다(내리는 잡은 아직 없음).
+소스에서 사라졌거나 해제된 `UPLOADED` 차량은 `NEEDS_REMOVAL`로 표시된다. 항상 assign → upload 순서로 돌고, 업로드 잡(미구현)이 `PENDING`/`FAILED`는 올리고 `NEEDS_REMOVAL`은 내린 뒤 `Car.release()`로 할당을 비운다.
 
 ## 4) `collect-draft` 실행 예시
 
