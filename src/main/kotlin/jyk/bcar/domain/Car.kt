@@ -35,6 +35,8 @@ data class Car(
     fun assignTo(user: TargetAdminUser, now: Instant): Car =
         copy(assignedUserId = user.id, assignedAt = now, targetSite = user.targetSite, uploadStatus = UploadStatus.PENDING)
 
+    fun unassign(): Car = copy(assignedUserId = null, assignedAt = null, targetSite = null, uploadStatus = UploadStatus.NONE)
+
     private fun withDraftOf(fresh: Car): Car =
         copy(
             title = fresh.title,

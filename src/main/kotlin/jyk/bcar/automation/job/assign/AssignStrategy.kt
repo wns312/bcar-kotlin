@@ -3,10 +3,14 @@ package jyk.bcar.automation.job.assign
 import jyk.bcar.domain.Car
 import jyk.bcar.domain.TargetAdminUser
 
-/**
- * 유저 한 명에게 줄 차량을 고르는 규칙. 조건에 맞는 게 모자라면 모자란 채로 돌려준다 — 남은 몫은 다음 전략이 채운다.
- * 빈 순서(@Order)가 곧 폴백 순서.
- */
+data class AssignPlan(
+    val assign: Map<TargetAdminUser, List<Car>>,
+    val release: List<Car>,
+    /** 유저 quota 합 대비 못 채운 대수. 폴백까지 다 쓴 뒤의 값 */
+    val shortfall: Int,
+)
+
+/** 저장 없이 누구에게 무엇을 주고 무엇을 뺄지 계산한다. 실패하지 않는다 — 못 채우면 shortfall로만 보고 */
 fun interface AssignStrategy {
-    fun pick(user: TargetAdminUser, held: List<Car>, pool: List<Car>, need: Int): List<Car>
+    fun plan(users: List<TargetAdminUser>, cars: List<Car>): AssignPlan
 }

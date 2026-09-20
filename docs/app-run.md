@@ -73,20 +73,17 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 - `assign-cars` 성공 시 `batch.detail-shards`개의 shard 체인이 시작된다. 이전 launch의 체인이 아직 도는 shard는 건너뛴다(잡 이름 접두사로 확인).
 
 ### `assign-cars`
-시트 `교차로계정정보`(`A2:D` = id, password, targetSite, quota)의 유저마다 활성·미할당 차량을 `quota`까지 채운다.
-이미 할당된 차량은 유지하고, 새로 할당된 차량은 `assignedUserId`, `targetSite`, `assignedAt`, `uploadStatus=PENDING`이 찍힌다.
-흐름은 `CarAssigner.plan`(저장 없이 유저별 선정·부족분 계산, 로그) → `CarAssigner.apply`(필드 찍기) → 저장.
-선정 규칙은 `AssignStrategy` 빈들이고 `@Order` 순서가 폴백 순서다 — 앞 전략이 못 채운 몫을 다음 전략이 채운다. 마지막은 `AnyCarAssignStrategy`(조건 없이 채움).
+시트 `교차로계정정보`(`A2:D` = id, password, targetSite, quota)의 유저마다 활성 차량을 `quota`까지 채운다. 실패하지 않는다 — 못 채운 대수는 `shortfall`로만 보고.
+
+계산은 `RatioAssignStrategy`(`AssignStrategy` 빈 교체 가능):
+1. 유저별 카테고리 목표 = `quota × assign.ratio`. 카테고리는 `CarCategory.of` (수입 > 화물 > 트럭 > 국산 ≤1300 > 국산 >1300)
+2. 목표 초과 카테고리는 `PENDING` 차량을 비싼 순으로 할당 해제, 미달은 부족분만큼 요구
+3. 카테고리별 공급(미할당 + 해제분) vs 수요. 모자라면 유저 요구량 비례로 나눔
+4. 그래도 모자란 몫은 `assign.fallback-order` 카테고리의 남은 공급으로 채움
+5. 실제 차량은 싼 순으로 유저를 돌아가며 한 대씩
+
+새로 할당된 차량은 `assignedUserId`, `targetSite`, `assignedAt`, `uploadStatus=PENDING`이 찍힌다.
 소스에서 사라진 차량이 `UPLOADED`였으면 `NEEDS_REMOVAL`로 표시된다(내리는 잡은 아직 없음).
-
-### 상세 수집 체인 정지
-`cars` 테이블의 `_control` 아이템으로 모든 체인을 다음 hop에서 멈춘다:
-
-```bash
-aws dynamodb put-item --table-name bcar-dev-cars --item '{"carNumber":{"S":"_control"},"stopDetail":{"BOOL":true}}'
-# 재개
-aws dynamodb delete-item --table-name bcar-dev-cars --key '{"carNumber":{"S":"_control"}}'
-```
 
 ## 4) `collect-draft` 실행 예시
 
