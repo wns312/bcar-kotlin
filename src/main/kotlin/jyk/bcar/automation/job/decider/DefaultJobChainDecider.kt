@@ -18,13 +18,19 @@ class DefaultJobChainDecider(
         if (!result.success) return emptyList()
 
         return when (result) {
+            // 체인 시작점. 이전 launch의 체인이 아직 도는 shard는 제출 측에서 건너뛴다
             is CollectDraftResult -> (0 until batchProperties.detailShards).map { shard ->
-                detailRequest(shard = shard, shards = batchProperties.detailShards, hop = 0)
+                detailRequest(shard = shard, shards = batchProperties.detailShards, hop = 0, idle = 0)
+                    .let { it.copy(skipIfActive = it.chainPrefix()) }
             }
-            // 잡 하나가 IP 하나 분량(~15건)만 처리하므로 남은 게 있으면 같은 shard를 새 잡(=새 IP)으로 이어간다
+            // 잡 하나가 IP 하나 분량만 처리하므로 남은 게 있으면 같은 shard를 새 잡(=새 IP)으로 이어간다
             is CollectDetailResult ->
-                if (!result.stopped && result.remaining > 0 && result.hop < batchProperties.detailMaxHops) {
-                    listOf(detailRequest(shard = result.shard, shards = result.shards, hop = result.hop + 1))
+                if (!result.stopped &&
+                    result.remaining > 0 &&
+                    result.hop < batchProperties.detailMaxHops &&
+                    result.idleHops < batchProperties.detailMaxIdleHops
+                ) {
+                    listOf(detailRequest(shard = result.shard, shards = result.shards, hop = result.hop + 1, idle = result.idleHops))
                 } else {
                     emptyList()
                 }
@@ -38,9 +44,13 @@ class DefaultJobChainDecider(
         }
     }
 
-    private fun detailRequest(shard: Int, shards: Int, hop: Int) =
+    private fun detailRequest(shard: Int, shards: Int, hop: Int, idle: Int) =
         NextJobRequest(
             jobName = "collect-detail",
-            parameters = mapOf("shards" to "$shards", "shard" to "$shard", "hop" to "$hop"),
+            parameters = mapOf("shards" to "$shards", "shard" to "$shard", "hop" to "$hop", "idle" to "$idle"),
         )
+
+    // AwsBatchJobSubmitter의 잡 이름 규칙(jobName-key1value1-key2value2…)에서 hop 앞까지
+    private fun NextJobRequest.chainPrefix() =
+        "$jobName-shards${parameters["shards"]}-shard${parameters["shard"]}-"
 }

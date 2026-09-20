@@ -44,7 +44,8 @@ class CollectDetailJob(
         val shards = intArg("shards") ?: 1
         val shard = intArg("shard") ?: System.getenv("AWS_BATCH_JOB_ARRAY_INDEX")?.toInt() ?: 0
         val hop = intArg("hop") ?: 0
-        logger.info("Collecting detail cars. shard=$shard/$shards hop=$hop")
+        val idle = intArg("idle") ?: 0
+        logger.info("Collecting detail cars. shard=$shard/$shards hop=$hop idle=$idle")
 
         if (carRepository.isDetailCollectionStopped()) {
             logger.warn("Detail collection stopped by _control.stopDetail")
@@ -83,12 +84,14 @@ class CollectDetailJob(
         }
 
         val remaining = cars.size - done
+        val idleHops = if (done == 0) idle + 1 else 0
         CollectDetailResult(
             shard = shard,
             shards = shards,
             hop = hop,
             remaining = remaining,
-            message = "shard=$shard/$shards hop=$hop done=$done remaining=$remaining blocked=$blocked",
+            idleHops = idleHops,
+            message = "shard=$shard/$shards hop=$hop done=$done remaining=$remaining blocked=$blocked idleHops=$idleHops",
         )
     }
 
