@@ -33,8 +33,13 @@ class CollectDetailPageBytes(
             .header(HttpHeaders.REFERER, REFERER_URI)
             .header("Upgrade-Insecure-Requests", "1")
             .retrieve()
-            .bodyToMono(ByteArray::class.java)
+            .toEntity(ByteArray::class.java)
             .awaitSingle()
+            .let { entity ->
+                // 차단 시 200에 빈 body를 주기도 한다. 호출자가 fetch 실패로 취급하도록 예외
+                entity.body?.takeIf { it.isNotEmpty() }
+                    ?: throw IllegalStateException("empty body, status=${entity.statusCode}")
+            }
     }
 }
 
