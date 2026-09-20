@@ -229,6 +229,12 @@ resource "aws_iam_role_policy" "batch_job_submit" {
           aws_batch_job_definition.detail.arn_prefix,
           "${aws_batch_job_definition.detail.arn_prefix}:*"
         ]
+      },
+      {
+        # 같은 shard 체인 중복 제출 방지용 조회. ListJobs는 리소스 단위 권한이 없다
+        Effect   = "Allow"
+        Action   = ["batch:ListJobs"]
+        Resource = "*"
       }
     ]
   })

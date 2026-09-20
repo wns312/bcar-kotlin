@@ -60,9 +60,10 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 - `--shards=N`: DynamoDB Scan을 N개 세그먼트로 나눔 (기본 1)
 - `--shard=i`: 이 잡이 맡을 세그먼트 (기본: `AWS_BATCH_JOB_ARRAY_INDEX`, 없으면 0)
 - `--hop=n`: 체인 몇 번째 잡인지 (기본 0). `batch.detail-max-hops` 초과 시 후속 제출 안 함
+- `--idle=n`: 직전까지 연속 0건 hop 수 (체인이 자동으로 넘김). `batch.detail-max-idle-hops`(기본 5)에 도달하면 사이트 장애로 보고 종료
 
 상세 페이지는 IP당 ~15건에서 차단되므로 잡 하나는 IP 하나 분량만 처리하고, 남은 차량이 있으면 같은 shard의 후속 잡을 제출한다 (`--next=true`일 때).
-`collect-draft` 성공 시 `batch.detail-shards`개의 shard 체인이 시작된다.
+`collect-draft` 성공 시 `batch.detail-shards`개의 shard 체인이 시작된다. 이전 launch의 체인이 아직 도는 shard는 건너뛴다(잡 이름 접두사로 확인).
 
 ### 상세 수집 체인 정지
 `cars` 테이블의 `_control` 아이템으로 모든 체인을 다음 hop에서 멈춘다:
