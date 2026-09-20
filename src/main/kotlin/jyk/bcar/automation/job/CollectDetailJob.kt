@@ -13,6 +13,7 @@ import jyk.bcar.domain.Car
 import jyk.bcar.domain.CarDetail
 import jyk.bcar.repository.CarRepository
 import jyk.bcar.repository.UserRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -20,7 +21,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
-import org.springframework.web.reactive.function.client.WebClientException
 
 /**
  * 상세 페이지는 IP당 ~15건에서 차단된다. 잡 하나 = IP 하나 분량: 차단되면 남은 건수를 결과로 돌려주고
@@ -62,16 +62,19 @@ class CollectDetailJob(
         for (chunk in cars.chunked(5)) {
             val updates = mutableListOf<Car>()
             for (car in chunk) {
-                val detail = try {
-                    getDetail(car, cookieHeader)
-                } catch (e: WebClientException) {
+                // fetch 단계 예외는 종류 불문 "이 IP는 끝" — reset, timeout, 빈 body 전부 차단 신호였다
+                val bytes = try {
+                    collectDetailPageBytes.doAct(CollectDetailPageBytesRequest(car.detailPageNum, cookieHeader))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
                     logger.warn("Blocked after $done cars: ${e.message}")
                     blocked = true
                     break
                 }
                 done++
                 // 파싱 실패 = 페이지가 없거나 바뀜. 비활성으로 내려 다음 hop이 같은 걸 또 긁지 않게. 목록에 다시 나오면 reconcile이 되살림
-                updates += detail?.let { car.copy(detail = it) } ?: car.copy(isActive = false)
+                updates += parseDetail(car, bytes)?.let { car.copy(detail = it) } ?: car.copy(isActive = false)
             }
             carRepository.saveAll(updates)
             logger.info("Details progress: $done/${cars.size}")
@@ -98,9 +101,8 @@ class CollectDetailJob(
         }
     }
 
-    private suspend fun getDetail(car: Car, cookieHeader: String): CarDetail? {
-        val bytes = collectDetailPageBytes.doAct(CollectDetailPageBytesRequest(car.detailPageNum, cookieHeader))
-        return try {
+    private suspend fun parseDetail(car: Car, bytes: ByteArray): CarDetail? =
+        try {
             detailExtractor.doAct(DetailExtractorRequest(bytes, CharSet.EUC_KR, baseUri = ""))
         } catch (e: IllegalArgumentException) {
             logger.warn("Unparseable detail for ${car.carNumber} (m_no=${car.detailPageNum}): ${e.message}")
@@ -109,5 +111,4 @@ class CollectDetailJob(
             logger.warn("Unparseable detail for ${car.carNumber} (m_no=${car.detailPageNum}): ${e.message}")
             null
         }
-    }
 }
