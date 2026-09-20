@@ -1,18 +1,14 @@
 package jyk.bcar.automation.job
 
 import jyk.bcar.automation.job.act.sources.CharSet
-import jyk.bcar.automation.job.act.sources.SourceAdminLogin
-import jyk.bcar.automation.job.act.sources.SourceAdminLoginResult
 import jyk.bcar.automation.job.act.sources.detail.CollectDetailPageBytes
 import jyk.bcar.automation.job.act.sources.detail.CollectDetailPageBytesRequest
 import jyk.bcar.automation.job.act.sources.detail.DetailExtractor
 import jyk.bcar.automation.job.act.sources.detail.DetailExtractorRequest
 import jyk.bcar.automation.job.result.CollectDetailResult
-import jyk.bcar.automation.playwright.PlaywrightSessionRunner
 import jyk.bcar.domain.Car
 import jyk.bcar.domain.CarDetail
 import jyk.bcar.repository.CarRepository
-import jyk.bcar.repository.UserRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -28,8 +24,6 @@ import org.springframework.web.reactive.function.client.WebClient
  */
 @Component
 class CollectDetailJob(
-    private val runner: PlaywrightSessionRunner,
-    private val userRepository: UserRepository,
     private val carRepository: CarRepository,
     private val args: ApplicationArguments,
     webClient: WebClient,
@@ -52,7 +46,6 @@ class CollectDetailJob(
             return@withContext CollectDetailResult(shard, shards, hop, remaining = 0, stopped = true, message = "stopped")
         }
 
-        val cookieHeader = login().cookieHeader
         val cars = carRepository
             .findAll(segment = shard, totalSegments = shards)
             .filter { it.isActive && it.detail == null }
@@ -65,7 +58,7 @@ class CollectDetailJob(
             for (car in chunk) {
                 // fetch 단계 예외는 종류 불문 "이 IP는 끝" — reset, timeout, 빈 body 전부 차단 신호였다
                 val bytes = try {
-                    collectDetailPageBytes.doAct(CollectDetailPageBytesRequest(car.detailPageNum, cookieHeader))
+                    collectDetailPageBytes.doAct(CollectDetailPageBytesRequest(car.detailPageNum))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -96,13 +89,6 @@ class CollectDetailJob(
     }
 
     private fun intArg(name: String): Int? = args.getOptionValues(name)?.firstOrNull()?.toInt()
-
-    private suspend fun login(): SourceAdminLoginResult {
-        val sourceAdminUser = userRepository.findSourceAdminUser()
-        return runner.withSession { session ->
-            session.usePage { SourceAdminLogin(it).doAct(sourceAdminUser) }
-        }
-    }
 
     private suspend fun parseDetail(car: Car, bytes: ByteArray): CarDetail? =
         try {

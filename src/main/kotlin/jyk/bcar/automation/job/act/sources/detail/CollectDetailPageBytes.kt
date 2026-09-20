@@ -26,7 +26,6 @@ class CollectDetailPageBytes(
             ).header(HttpHeaders.ACCEPT_ENCODING, "gzip, deflate")
             .header(HttpHeaders.ACCEPT_LANGUAGE, "ko-KR,ko;q=0.9")
             .header(HttpHeaders.CACHE_CONTROL, "no-cache")
-            .header(HttpHeaders.COOKIE, input.cookieHeader)
             .header(HttpHeaders.HOST, "thebestcar.kr")
             .header(HttpHeaders.PRAGMA, "no-cache")
             .header(HttpHeaders.USER_AGENT, DetailUserAgents.values.random())
@@ -45,5 +44,4 @@ class CollectDetailPageBytes(
 
 data class CollectDetailPageBytesRequest(
     val detailPageNum: String,
-    val cookieHeader: String,
 )
