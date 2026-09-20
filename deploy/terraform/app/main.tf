@@ -223,8 +223,10 @@ resource "aws_iam_role_policy" "batch_job_submit" {
       {
         Effect = "Allow"
         Action = ["batch:SubmitJob"]
+        # 리비전 없이 정의 이름으로 제출하면 IAM은 리비전 없는 ARN으로 평가한다
         Resource = [
           aws_batch_job_queue.detail.arn,
+          aws_batch_job_definition.detail.arn_prefix,
           "${aws_batch_job_definition.detail.arn_prefix}:*"
         ]
       }
