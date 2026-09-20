@@ -337,7 +337,8 @@ resource "aws_batch_job_definition" "main" {
   tags = local.tags
 }
 
-# array job으로 제출: --array-properties size=N, 커맨드 --shards=N. 자식 하나가 수천 건이라 timeout을 길게
+# array job으로 제출: --array-properties size=N, 커맨드 --shards=N.
+# 상세 페이지는 IP당 ~15건에서 차단되므로 attempt(=새 Fargate IP) 수가 곧 수집량: 10회 × 15건 = 잡당 150건
 resource "aws_batch_job_definition" "detail" {
   name = "${local.name_prefix}-detail-job"
   type = "container"
@@ -349,7 +350,7 @@ resource "aws_batch_job_definition" "detail" {
   }))
 
   retry_strategy {
-    attempts = 3
+    attempts = 10
   }
 
   timeout {
