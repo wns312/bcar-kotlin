@@ -22,6 +22,8 @@ class DynamoDbCarRepository(
 ) : CarRepository {
     companion object {
         private const val BATCH_WRITE_LIMIT = 25
+        private const val CONTROL_KEY = "_control"
+        private const val STOP_DETAIL_ATTR = "stopDetail"
 
         // Fargate에서 async(netty) 클라이언트가 응답 없이 매달린 적 있음. Secrets Manager와 같은 sync(apache) 경로 + 타임아웃
         fun defaultClient(): DynamoDbClient =
@@ -46,6 +48,7 @@ class DynamoDbCarRepository(
                 it.tableName(properties.carsTable)
                 if (totalSegments > 1) it.segment(segment).totalSegments(totalSegments)
             }.items()
+            .filterNot { it.getValue("carNumber").s().startsWith("_") }
             .map(::itemToCar)
         logger.info("Scanned ${cars.size} cars from ${properties.carsTable} (segment $segment/$totalSegments)")
         cars
@@ -63,6 +66,14 @@ class DynamoDbCarRepository(
                 if (unprocessed.isNotEmpty()) delay(200)
             }
         }
+    }
+
+    override suspend fun isDetailCollectionStopped(): Boolean = withContext(Dispatchers.IO) {
+        client
+            .getItem {
+                it.tableName(properties.carsTable).key(mapOf("carNumber" to AttributeValue.fromS(CONTROL_KEY)))
+            }.item()[STOP_DETAIL_ATTR]
+            ?.bool() == true
     }
 }
 

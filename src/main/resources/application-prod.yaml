@@ -3,3 +3,8 @@ spring:
     import: "aws-secretsmanager:bcar-prod"
 dynamodb:
   cars-table: bcar-prod-cars
+batch:
+  jobs:
+    collect-detail:
+      queue: bcar-prod-detail-queue
+      definition: bcar-prod-detail-job

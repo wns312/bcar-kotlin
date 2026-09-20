@@ -13,3 +13,11 @@ automation:
 
 dynamodb:
   cars-table: bcar-dev-cars
+
+batch:
+  detail-shards: 8
+  detail-max-hops: 300
+  jobs:
+    collect-detail:
+      queue: bcar-dev-detail-queue
+      definition: bcar-dev-detail-job

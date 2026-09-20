@@ -211,6 +211,26 @@ resource "aws_iam_role_policy" "batch_job_dynamodb" {
   })
 }
 
+# 잡이 후속 잡(collect-detail 체인)을 직접 제출한다
+resource "aws_iam_role_policy" "batch_job_submit" {
+  name = "${local.name_prefix}-batch-job-submit"
+  role = aws_iam_role.batch_job.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["batch:SubmitJob"]
+        Resource = [
+          aws_batch_job_queue.detail.arn,
+          "${aws_batch_job_definition.detail.arn_prefix}:*"
+        ]
+      }
+    ]
+  })
+}
+
 resource "aws_batch_compute_environment" "main" {
   compute_environment_name = "${local.name_prefix}-ce"
   type                     = "MANAGED"
@@ -337,8 +357,7 @@ resource "aws_batch_job_definition" "main" {
   tags = local.tags
 }
 
-# array job으로 제출: --array-properties size=N, 커맨드 --shards=N.
-# 상세 페이지는 IP당 ~15건에서 차단되므로 attempt(=새 Fargate IP) 수가 곧 수집량: 10회 × 15건 = 잡당 150건
+# 잡 하나 = IP 하나 분량(~15건). 차단되면 잡이 스스로 같은 shard의 후속 잡을 제출하므로 retry는 인프라 장애용만
 resource "aws_batch_job_definition" "detail" {
   name = "${local.name_prefix}-detail-job"
   type = "container"
@@ -350,7 +369,7 @@ resource "aws_batch_job_definition" "detail" {
   }))
 
   retry_strategy {
-    attempts = 10
+    attempts = 2
   }
 
   timeout {

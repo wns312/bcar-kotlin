@@ -7,4 +7,7 @@ interface CarRepository {
     suspend fun findAll(segment: Int = 0, totalSegments: Int = 1): List<Car>
 
     suspend fun saveAll(cars: List<Car>)
+
+    /** `_control` 아이템의 stopDetail 플래그. 상세 수집 체인을 밖에서 세우는 스위치 */
+    suspend fun isDetailCollectionStopped(): Boolean
 }
