@@ -75,7 +75,8 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 ### `assign-cars`
 시트 `교차로계정정보`(`A2:D` = id, password, targetSite, quota)의 유저마다 활성·미할당 차량을 `quota`까지 채운다.
 이미 할당된 차량은 유지하고, 새로 할당된 차량은 `assignedUserId`, `targetSite`, `assignedAt`, `uploadStatus=PENDING`이 찍힌다.
-어떤 차량을 고를지는 `Car.assign`의 `pick` 파라미터(기본 `pickByQuota`: pool 앞에서 부족분만큼)로 바꾼다.
+흐름은 `CarAssigner.plan`(저장 없이 유저별 선정·부족분 계산, 로그) → `CarAssigner.apply`(필드 찍기) → 저장.
+선정 규칙은 `AssignStrategy` 빈들이고 `@Order` 순서가 폴백 순서다 — 앞 전략이 못 채운 몫을 다음 전략이 채운다. 마지막은 `AnyCarAssignStrategy`(조건 없이 채움).
 소스에서 사라진 차량이 `UPLOADED`였으면 `NEEDS_REMOVAL`로 표시된다(내리는 잡은 아직 없음).
 
 ### 상세 수집 체인 정지

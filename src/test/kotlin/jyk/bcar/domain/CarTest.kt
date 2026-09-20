@@ -2,7 +2,6 @@ package jyk.bcar.domain
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
-import java.time.Instant
 
 class CarTest {
     private fun car(
@@ -26,10 +25,6 @@ class CarTest {
         assignedUserId = assignedUserId,
         uploadStatus = uploadStatus,
     )
-
-    private fun user(id: String, quota: Int) = TargetAdminUser(id = id, password = "pw", targetSite = "kcr", quota = quota)
-
-    private val now = Instant.parse("2026-09-20T00:00:00Z")
 
     private val detail = CarDetail(
         category = "대형",
@@ -90,39 +85,5 @@ class CarTest {
         assertEquals(UploadStatus.PENDING, changes.getValue("kept").uploadStatus)
         assertEquals(UploadStatus.NEEDS_REMOVAL, changes.getValue("goneUploaded").uploadStatus)
         assertEquals(UploadStatus.PENDING, changes.getValue("gonePending").uploadStatus)
-    }
-
-    @Test
-    fun assignFillsQuotaFromUnassignedActiveCarsOnly() {
-        val cars = listOf(
-            car("held1", assignedUserId = "u1"),
-            car("heldInactive", isActive = false, assignedUserId = "u1"),
-            car("inactive", isActive = false),
-            car("other", assignedUserId = "u2"),
-            car("a"),
-            car("b"),
-            car("c"),
-        )
-
-        val assigned = Car.assign(cars, listOf(user("u1", 2), user("u2", 3)), now)
-
-        assertEquals(mapOf("a" to "u1", "b" to "u2", "c" to "u2"), assigned.associate { it.carNumber to it.assignedUserId })
-        assertEquals(true, assigned.all { it.uploadStatus == UploadStatus.PENDING && it.assignedAt == now && it.targetSite == "kcr" })
-    }
-
-    @Test
-    fun assignHonoursCustomPick() {
-        val cars = listOf(car("cheap", price = 100), car("pricey", price = 900))
-
-        val assigned = Car.assign(cars, listOf(user("u1", 1)), now) { _, _, pool -> pool.filter { it.price > 500 } }
-
-        assertEquals(listOf("pricey"), assigned.map { it.carNumber })
-    }
-
-    @Test
-    fun assignReturnsNothingWhenQuotaAlreadyMet() {
-        val cars = listOf(car("held", assignedUserId = "u1"), car("free"))
-
-        assertEquals(emptyList<Car>(), Car.assign(cars, listOf(user("u1", 1)), now))
     }
 }

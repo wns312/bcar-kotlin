@@ -70,30 +70,6 @@ data class Car(
 
             return upserts + deactivated
         }
-
-        /**
-         * 유저별로 활성·미할당 차량을 quota까지 채운다. 이미 할당된 건 유지하고 새로 할당된 차량만 돌려준다.
-         * 어떤 차량을 고를지는 [pick]이 정한다 — 기본은 pool 앞에서 부족분만큼.
-         */
-        fun assign(
-            cars: List<Car>,
-            users: List<TargetAdminUser>,
-            now: Instant,
-            pick: (user: TargetAdminUser, held: List<Car>, pool: List<Car>) -> List<Car> = ::pickByQuota,
-        ): List<Car> {
-            val active = cars.filter { it.isActive }
-            val heldByUser = active.filter { it.assignedUserId != null }.groupBy { it.assignedUserId!! }
-            val pool = active.filter { it.assignedUserId == null }.toMutableList()
-
-            return users.flatMap { user ->
-                val picked = pick(user, heldByUser[user.id].orEmpty(), pool).toSet()
-                pool.removeAll(picked)
-                picked.map { it.assignTo(user, now) }
-            }
-        }
-
-        fun pickByQuota(user: TargetAdminUser, held: List<Car>, pool: List<Car>): List<Car> =
-            pool.take((user.quota - held.size).coerceAtLeast(0))
     }
 }
 
