@@ -203,6 +203,7 @@ resource "aws_iam_role_policy" "batch_job_dynamodb" {
         Effect = "Allow"
         Action = [
           "dynamodb:Scan",
+          "dynamodb:GetItem",
           "dynamodb:BatchWriteItem"
         ]
         Resource = aws_dynamodb_table.cars.arn
