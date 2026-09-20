@@ -51,7 +51,8 @@ class CollectDetailJob(
         var done = 0
 
         try {
-            cars.chunked(10).forEach { chunk ->
+            // IP당 15~16건에서 죽으므로 청크가 크면 마지막 청크를 통째로 잃는다. 5건이면 손실 ≤ 1건
+            cars.chunked(5).forEach { chunk ->
                 val collected = chunk.mapNotNull { car ->
                     val detail = getDetail(car, cookieHeader)
                     done++
