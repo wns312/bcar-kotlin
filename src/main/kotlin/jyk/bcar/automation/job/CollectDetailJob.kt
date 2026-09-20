@@ -1,14 +1,18 @@
 package jyk.bcar.automation.job
 
 import jyk.bcar.automation.job.act.sources.CharSet
+import jyk.bcar.automation.job.act.sources.SourceAdminLogin
+import jyk.bcar.automation.job.act.sources.SourceAdminLoginResult
 import jyk.bcar.automation.job.act.sources.detail.CollectDetailPageBytes
 import jyk.bcar.automation.job.act.sources.detail.CollectDetailPageBytesRequest
 import jyk.bcar.automation.job.act.sources.detail.DetailExtractor
 import jyk.bcar.automation.job.act.sources.detail.DetailExtractorRequest
 import jyk.bcar.automation.job.result.CollectDraftResult
+import jyk.bcar.automation.playwright.PlaywrightSessionRunner
 import jyk.bcar.domain.Car
 import jyk.bcar.domain.CarDetail
 import jyk.bcar.repository.CarRepository
+import jyk.bcar.repository.UserRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -19,6 +23,8 @@ import org.springframework.web.reactive.function.client.WebClient
 
 @Component
 class CollectDetailJob(
+    private val runner: PlaywrightSessionRunner,
+    private val userRepository: UserRepository,
     private val carRepository: CarRepository,
     private val args: ApplicationArguments,
     webClient: WebClient,
@@ -35,6 +41,9 @@ class CollectDetailJob(
         val shard = System.getenv("AWS_BATCH_JOB_ARRAY_INDEX")?.toInt() ?: 0
         logger.info("Collecting detail cars. shard=$shard/$shards")
 
+        // 비로그인 요청은 IP당 ~15건에서 차단됨. 딜러 세션으로 요청
+        val cookieHeader = login().cookieHeader
+
         // 상세 페이지는 IP당 요청 예산이 매우 작다(~15건). 이미 수집된 차량은 건너뛰고 미수집분만
         val cars = carRepository
             .findAll(segment = shard, totalSegments = shards)
@@ -44,7 +53,7 @@ class CollectDetailJob(
         try {
             cars.chunked(10).forEach { chunk ->
                 val collected = chunk.mapNotNull { car ->
-                    val detail = getDetail(car)
+                    val detail = getDetail(car, cookieHeader)
                     done++
                     detail?.let { car.copy(detail = it) }
                 }
@@ -62,8 +71,15 @@ class CollectDetailJob(
     }
 
     // 파싱 실패(페이지 사라짐·구조 변경)는 차량 하나만 건너뛴다. 네트워크 실패는 재시도 후에도 안 되면 잡 자체를 죽임
-    private suspend fun getDetail(car: Car): CarDetail? {
-        val bytes = collectDetailPageBytes.doAct(CollectDetailPageBytesRequest(car.detailPageNum))
+    private suspend fun login(): SourceAdminLoginResult {
+        val sourceAdminUser = userRepository.findSourceAdminUser()
+        return runner.withSession { session ->
+            session.usePage { SourceAdminLogin(it).doAct(sourceAdminUser) }
+        }
+    }
+
+    private suspend fun getDetail(car: Car, cookieHeader: String): CarDetail? {
+        val bytes = collectDetailPageBytes.doAct(CollectDetailPageBytesRequest(car.detailPageNum, cookieHeader))
         return try {
             detailExtractor.doAct(DetailExtractorRequest(bytes, CharSet.EUC_KR, baseUri = ""))
         } catch (e: IllegalArgumentException) {
