@@ -35,18 +35,21 @@ class CollectDetailJob(
         val shard = System.getenv("AWS_BATCH_JOB_ARRAY_INDEX")?.toInt() ?: 0
         logger.info("Collecting detail cars. shard=$shard/$shards")
 
-        val cars = carRepository.findAll(segment = shard, totalSegments = shards).filter { it.isActive }
+        // 상세 페이지는 IP당 요청 예산이 매우 작다(~15건). 이미 수집된 차량은 건너뛰고 미수집분만
+        val cars = carRepository
+            .findAll(segment = shard, totalSegments = shards)
+            .filter { it.isActive && it.detail == null }
         var done = 0
 
         try {
             cars.chunked(10).forEach { chunk ->
-                val changed = chunk.mapNotNull { car ->
+                val collected = chunk.mapNotNull { car ->
                     val detail = getDetail(car)
                     done++
-                    detail?.let { fresh -> car.copy(detail = fresh).takeIf { fresh != car.detail } }
+                    detail?.let { car.copy(detail = it) }
                 }
-                carRepository.saveAll(changed)
-                logger.info("Details progress: $done/${cars.size}, changed in chunk=${changed.size}")
+                carRepository.saveAll(collected)
+                logger.info("Details progress: $done/${cars.size}, saved in chunk=${collected.size}")
                 delay(1000)
             }
         } catch (e: Exception) {

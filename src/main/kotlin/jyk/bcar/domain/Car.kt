@@ -16,6 +16,7 @@ data class Car(
         /**
          * 수집 스냅샷과 저장 상태를 비교해 실제로 바뀐 차량만 돌려준다.
          * 스냅샷에 없는 활성 차량은 비활성화, 있는 차량은 draft 필드를 갱신하고 기존 detail은 유지.
+         * 비활성이었다가 다시 나타난 차량은 detail을 비워 재수집 대상으로 만든다.
          */
         fun reconcile(existing: List<Car>, collected: List<Car>): List<Car> {
             val existingByNumber = existing.associateBy { it.carNumber }
@@ -23,7 +24,8 @@ data class Car(
 
             val upserts = collectedByNumber.values.mapNotNull { fresh ->
                 val old = existingByNumber[fresh.carNumber]
-                fresh.copy(isActive = true, detail = old?.detail).takeIf { it != old }
+                val keptDetail = old?.detail?.takeIf { old.isActive }
+                fresh.copy(isActive = true, detail = keptDetail).takeIf { it != old }
             }
             val deactivated = existingByNumber.values
                 .filter { it.isActive && it.carNumber !in collectedByNumber }

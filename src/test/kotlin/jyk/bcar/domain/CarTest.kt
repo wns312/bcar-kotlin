@@ -43,18 +43,22 @@ class CarTest {
             car("priceChanged", price = 1000, detail = detail),
             car("gone"),
             car("alreadyInactive", isActive = false),
+            car("relisted", isActive = false, detail = detail),
         )
         val collected = listOf(
             car("same"),
             car("priceChanged", price = 900),
             car("new"),
+            car("relisted"),
         )
 
         val changes = Car.reconcile(existing, collected).associateBy { it.carNumber }
 
-        assertEquals(setOf("priceChanged", "new", "gone"), changes.keys)
+        assertEquals(setOf("priceChanged", "new", "gone", "relisted"), changes.keys)
         assertEquals(detail, changes.getValue("priceChanged").detail)
         assertEquals(900, changes.getValue("priceChanged").price)
         assertEquals(false, changes.getValue("gone").isActive)
+        assertEquals(true, changes.getValue("relisted").isActive)
+        assertEquals(null, changes.getValue("relisted").detail)
     }
 }
