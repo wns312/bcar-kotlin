@@ -7,7 +7,7 @@ import jyk.bcar.automation.job.act.sources.detail.CollectDetailPageBytes
 import jyk.bcar.automation.job.act.sources.detail.CollectDetailPageBytesRequest
 import jyk.bcar.automation.job.act.sources.detail.DetailExtractor
 import jyk.bcar.automation.job.act.sources.detail.DetailExtractorRequest
-import jyk.bcar.automation.job.result.CollectDraftResult
+import jyk.bcar.automation.job.result.CollectDetailResult
 import jyk.bcar.automation.playwright.PlaywrightSessionRunner
 import jyk.bcar.domain.Car
 import jyk.bcar.domain.CarDetail
@@ -20,7 +20,12 @@ import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.reactive.function.client.WebClientException
 
+/**
+ * 상세 페이지는 IP당 ~15건에서 차단된다. 잡 하나 = IP 하나 분량: 차단되면 남은 건수를 결과로 돌려주고
+ * 후속 잡(같은 shard, hop+1) 제출은 JobChainDecider에 맡긴다.
+ */
 @Component
 class CollectDetailJob(
     private val runner: PlaywrightSessionRunner,
@@ -28,50 +33,64 @@ class CollectDetailJob(
     private val carRepository: CarRepository,
     private val args: ApplicationArguments,
     webClient: WebClient,
-) : AutomationJob<CollectDraftResult> {
+) : AutomationJob<CollectDetailResult> {
     private val logger = LoggerFactory.getLogger(this::class.java)
     private val collectDetailPageBytes = CollectDetailPageBytes(webClient)
     private val detailExtractor = DetailExtractor()
 
     override val name: String = "collect-detail"
 
-    override suspend fun execute(): CollectDraftResult = withContext(Dispatchers.IO) {
-        // Batch array job이면 자식마다 세그먼트 하나. 로컬/단일 실행이면 0/1
-        val shards = args.getOptionValues("shards")?.firstOrNull()?.toInt() ?: 1
-        val shard = System.getenv("AWS_BATCH_JOB_ARRAY_INDEX")?.toInt() ?: 0
-        logger.info("Collecting detail cars. shard=$shard/$shards")
+    override suspend fun execute(): CollectDetailResult = withContext(Dispatchers.IO) {
+        val shards = intArg("shards") ?: 1
+        val shard = intArg("shard") ?: System.getenv("AWS_BATCH_JOB_ARRAY_INDEX")?.toInt() ?: 0
+        val hop = intArg("hop") ?: 0
+        logger.info("Collecting detail cars. shard=$shard/$shards hop=$hop")
 
-        // 비로그인 요청은 IP당 ~15건에서 차단됨. 딜러 세션으로 요청
+        if (carRepository.isDetailCollectionStopped()) {
+            logger.warn("Detail collection stopped by _control.stopDetail")
+            return@withContext CollectDetailResult(shard, shards, hop, remaining = 0, stopped = true, message = "stopped")
+        }
+
         val cookieHeader = login().cookieHeader
-
-        // 상세 페이지는 IP당 요청 예산이 매우 작다(~15건). 이미 수집된 차량은 건너뛰고 미수집분만
         val cars = carRepository
             .findAll(segment = shard, totalSegments = shards)
             .filter { it.isActive && it.detail == null }
         var done = 0
+        var blocked = false
 
-        try {
-            // IP당 15~16건에서 죽으므로 청크가 크면 마지막 청크를 통째로 잃는다. 5건이면 손실 ≤ 1건
-            cars.chunked(5).forEach { chunk ->
-                val collected = chunk.mapNotNull { car ->
-                    val detail = getDetail(car, cookieHeader)
-                    done++
-                    detail?.let { car.copy(detail = it) }
+        // 차단 시 마지막 청크를 통째로 잃지 않도록 작게 저장
+        for (chunk in cars.chunked(5)) {
+            val updates = mutableListOf<Car>()
+            for (car in chunk) {
+                val detail = try {
+                    getDetail(car, cookieHeader)
+                } catch (e: WebClientException) {
+                    logger.warn("Blocked after $done cars: ${e.message}")
+                    blocked = true
+                    break
                 }
-                carRepository.saveAll(collected)
-                logger.info("Details progress: $done/${cars.size}, saved in chunk=${collected.size}")
-                delay(1000)
+                done++
+                // 파싱 실패 = 페이지가 없거나 바뀜. 비활성으로 내려 다음 hop이 같은 걸 또 긁지 않게. 목록에 다시 나오면 reconcile이 되살림
+                updates += detail?.let { car.copy(detail = it) } ?: car.copy(isActive = false)
             }
-        } catch (e: Exception) {
-            // 자식 잡이 어디까지 갔는지 남긴다 — IP당 차단 임계치 측정용
-            logger.error("Detail collection died after $done/${cars.size} cars in shard=$shard", e)
-            throw e
+            carRepository.saveAll(updates)
+            logger.info("Details progress: $done/${cars.size}")
+            if (blocked) break
+            delay(1000)
         }
 
-        CollectDraftResult(message = "details collected: shard=$shard/$shards, cars=${cars.size}")
+        val remaining = cars.size - done
+        CollectDetailResult(
+            shard = shard,
+            shards = shards,
+            hop = hop,
+            remaining = remaining,
+            message = "shard=$shard/$shards hop=$hop done=$done remaining=$remaining blocked=$blocked",
+        )
     }
 
-    // 파싱 실패(페이지 사라짐·구조 변경)는 차량 하나만 건너뛴다. 네트워크 실패는 재시도 후에도 안 되면 잡 자체를 죽임
+    private fun intArg(name: String): Int? = args.getOptionValues(name)?.firstOrNull()?.toInt()
+
     private suspend fun login(): SourceAdminLoginResult {
         val sourceAdminUser = userRepository.findSourceAdminUser()
         return runner.withSession { session ->
@@ -84,10 +103,10 @@ class CollectDetailJob(
         return try {
             detailExtractor.doAct(DetailExtractorRequest(bytes, CharSet.EUC_KR, baseUri = ""))
         } catch (e: IllegalArgumentException) {
-            logger.warn("Skip detail for ${car.carNumber} (m_no=${car.detailPageNum}): ${e.message}")
+            logger.warn("Unparseable detail for ${car.carNumber} (m_no=${car.detailPageNum}): ${e.message}")
             null
         } catch (e: IllegalStateException) {
-            logger.warn("Skip detail for ${car.carNumber} (m_no=${car.detailPageNum}): ${e.message}")
+            logger.warn("Unparseable detail for ${car.carNumber} (m_no=${car.detailPageNum}): ${e.message}")
             null
         }
     }

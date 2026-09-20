@@ -49,3 +49,6 @@ crash.*.log
 
 ### Local
 application-local.yaml
+
+### Claude Code
+.claude/worktrees/

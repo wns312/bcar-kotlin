@@ -56,6 +56,23 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 - 지원 값: `true`, `false`
 - 다른 문자열이면: `Invalid --next value ...` 예외 발생
 
+### `collect-detail` 전용: `--shards`, `--shard`, `--hop`
+- `--shards=N`: DynamoDB Scan을 N개 세그먼트로 나눔 (기본 1)
+- `--shard=i`: 이 잡이 맡을 세그먼트 (기본: `AWS_BATCH_JOB_ARRAY_INDEX`, 없으면 0)
+- `--hop=n`: 체인 몇 번째 잡인지 (기본 0). `batch.detail-max-hops` 초과 시 후속 제출 안 함
+
+상세 페이지는 IP당 ~15건에서 차단되므로 잡 하나는 IP 하나 분량만 처리하고, 남은 차량이 있으면 같은 shard의 후속 잡을 제출한다 (`--next=true`일 때).
+`collect-draft` 성공 시 `batch.detail-shards`개의 shard 체인이 시작된다.
+
+### 상세 수집 체인 정지
+`cars` 테이블의 `_control` 아이템으로 모든 체인을 다음 hop에서 멈춘다:
+
+```bash
+aws dynamodb put-item --table-name bcar-dev-cars --item '{"carNumber":{"S":"_control"},"stopDetail":{"BOOL":true}}'
+# 재개
+aws dynamodb delete-item --table-name bcar-dev-cars --key '{"carNumber":{"S":"_control"}}'
+```
+
 ## 4) `collect-draft` 실행 예시
 
 ### 후속 잡 제출 비활성화(로컬 검증용)
@@ -70,8 +87,7 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 ./gradlew bootRun --args="--job=collect-draft --spring.profiles.active=dev"
 ```
 
-`collect-draft` 성공 시 기본 체인에서 다음 잡(`collect-detail`) 제출 요청이 생성됩니다.
-현재 `BatchJobSubmitter` 구현은 `LoggingBatchJobSubmitter`이므로 실제 외부 배치 제출 대신 로그를 남깁니다.
+`collect-draft` 성공 시 `AwsBatchJobSubmitter`가 `batch.jobs.<job>` 설정의 큐/정의로 실제 Batch 잡을 제출합니다. 로컬에서 실수로 제출하지 않도록 `--next=false`를 권장합니다.
 
 ## 5) 실행 확인 포인트
 
