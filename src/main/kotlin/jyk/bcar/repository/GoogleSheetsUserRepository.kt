@@ -40,19 +40,18 @@ class GoogleSheetsUserRepository(
             googleSheetsClient.readRange(
                 spreadsheetId = googleProperties.sheets.id,
                 sheet = TARGET_ADMIN_USER_SHEET_NAME,
-                rangeA1 = "A2:Z", // label을 제외한 두번째 row부터 조회
+                rangeA1 = "A2:D", // label을 제외한 두번째 row부터 id, password, targetSite, quota
             )
 
         return result.mapNotNull {
             try {
-                check(it.size == 2)
+                check(it.size == 4)
 
-                val id = it[0]
-                val password = it[1]
+                val (id, password, targetSite, quota) = it
 
-                check(id is String && password is String)
+                check(id is String && password is String && targetSite is String && quota is String)
 
-                TargetAdminUser(id = id, password = password)
+                TargetAdminUser(id = id, password = password, targetSite = targetSite, quota = quota.trim().toInt())
             } catch (_: Exception) {
                 logger.error("Unexpected target admin user parsing error: $it")
                 null

@@ -18,8 +18,9 @@ class DefaultJobChainDecider(
         if (!result.success) return emptyList()
 
         return when (result) {
+            is CollectDraftResult -> listOf(NextJobRequest(jobName = "assign-cars"))
             // 체인 시작점. 이전 launch의 체인이 아직 도는 shard는 제출 측에서 건너뛴다
-            is CollectDraftResult -> (0 until batchProperties.detailShards).map { shard ->
+            is AssignCarsResult -> (0 until batchProperties.detailShards).map { shard ->
                 detailRequest(shard = shard, shards = batchProperties.detailShards, hop = 0, idle = 0)
                     .let { it.copy(skipIfActive = it.chainPrefix()) }
             }
@@ -34,12 +35,6 @@ class DefaultJobChainDecider(
                 } else {
                     emptyList()
                 }
-            is AssignCarsResult -> result.carIds.map {
-                NextJobRequest(
-                    jobName = "sync-and-upload",
-                    parameters = mapOf("carId" to it),
-                )
-            }
             else -> emptyList()
         }
     }

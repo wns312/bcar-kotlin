@@ -18,6 +18,9 @@ batch:
   detail-shards: 8
   detail-max-hops: 300
   jobs:
+    assign-cars:
+      queue: bcar-dev-queue
+      definition: bcar-dev-job
     collect-detail:
       queue: bcar-dev-detail-queue
       definition: bcar-dev-detail-job
