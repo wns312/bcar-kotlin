@@ -9,10 +9,12 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
 /**
- * 1. 유저별 목표 = quota × 비율. 목표 초과 카테고리는 비싼 순으로 해제(안 올라간 것부터), 미달은 need
- * 2. 카테고리별 공급(미할당 + 해제분, 싼 순) vs 수요. 모자라면 need 비례로 나눔
- * 3. 그래도 모자란 유저 몫은 fallbackOrder 카테고리의 남은 공급으로
- * 4. 대수가 정해진 뒤 실제 차량은 싼 순으로 돌아가며 나눠준다
+ * 1. 유저별 목표 = quota × 비율. 미달 카테고리는 need, 초과 카테고리는 excess
+ * 2. 카테고리별 미할당 공급(싼 순) vs need 수요. 모자라면 need 비례로 나눔
+ * 3. 비율 맞는 차가 들어와 quota를 넘기는 만큼만 excess를 해제(안 올라간 것부터, 비싼 순).
+ *    폴백으로 채운 차를 매 실행 갈아끼우지 않으려면 해제는 교체 가능한 만큼만이어야 한다
+ * 4. 남은 자리는 fallbackOrder 카테고리의 남은 공급(해제분 포함)으로
+ * 5. 대수가 정해진 뒤 실제 차량은 싼 순으로 돌아가며 나눠준다
  */
 @Component
 class RatioAssignStrategy(
@@ -21,63 +23,83 @@ class RatioAssignStrategy(
     private val logger = LoggerFactory.getLogger(this::class.java)
     private val cheapest = compareBy<Car>({ it.price }, { it.carNumber })
     private val releaseFirst = compareBy<Car> { it.uploadStatus == UploadStatus.UPLOADED }.then(cheapest.reversed())
+    private val categories = CarCategory.entries
 
     override fun plan(users: List<TargetAdminUser>, cars: List<Car>): AssignPlan {
         val active = cars.filter { it.isActive }
         val heldByUser = active
             .filter { it.assignedUserId != null && it.uploadStatus != UploadStatus.NEEDS_REMOVAL }
             .groupBy { it.assignedUserId!! }
+        val unassigned = active.filter { it.assignedUserId == null }.groupBy(CarCategory::of)
 
-        val release = mutableListOf<Car>()
-        val need = users.associateWith { user ->
-            val held = heldByUser[user.id].orEmpty().groupBy(CarCategory::of)
-            val target = apportion(user.quota, CarCategory.entries.associateWith { properties.ratio[it] ?: 0.0 })
-            CarCategory.entries.associateWith { category ->
-                val diff = target.getValue(category) - held[category].orEmpty().size
-                if (diff < 0) {
-                    release += held.getValue(category).sortedWith(releaseFirst).take(-diff)
-                }
-                diff.coerceAtLeast(0)
-            }
-        }
+        val held = users.associateWith { heldByUser[it.id].orEmpty().groupBy(CarCategory::of) }
+        val target = users.associateWith { apportion(it.quota, categories.associateWith { c -> properties.ratio[c] ?: 0.0 }) }
 
-        val supply = (active.filter { it.assignedUserId == null } + release.filter { it.uploadStatus != UploadStatus.UPLOADED })
-            .groupBy(CarCategory::of)
-            .mapValues { it.value.sortedWith(cheapest) }
-        val give = users.associateWith { CarCategory.entries.associateWith { 0 }.toMutableMap() }
+        fun heldIn(user: TargetAdminUser, category: CarCategory) = held.getValue(user)[category].orEmpty()
 
-        for (category in CarCategory.entries) {
-            val needs = users.associateWith { need.getValue(it).getValue(category) }
+        fun need(user: TargetAdminUser, category: CarCategory) = (
+            target
+                .getValue(
+                    user,
+                ).getValue(category) - heldIn(user, category).size
+        ).coerceAtLeast(0)
+
+        fun excess(user: TargetAdminUser, category: CarCategory) = (
+            heldIn(
+                user,
+                category,
+            ).size - target.getValue(user).getValue(category)
+        ).coerceAtLeast(0)
+
+        val give = users.associateWith { categories.associateWith { 0 }.toMutableMap() }
+        for (category in categories) {
+            val needs = users.associateWith { need(it, category) }
             val demand = needs.values.sum()
-            val available = supply[category].orEmpty().size
+            val available = unassigned[category].orEmpty().size
             val shares = if (available >= demand) needs else apportion(available, needs)
             shares.forEach { (user, n) -> give.getValue(user)[category] = n }
             logger.info("$category: supply=$available demand=$demand")
         }
 
-        val shortage = users
+        val release = users.associateWith { user ->
+            val over = held.getValue(user).values.sumOf { it.size } + give.getValue(user).values.sum() - user.quota
+            if (over <= 0) {
+                emptyList()
+            } else {
+                categories
+                    .flatMap { c -> heldIn(user, c).sortedWith(releaseFirst).take(excess(user, c)) }
+                    .sortedWith(releaseFirst)
+                    .take(over)
+            }
+        }
+
+        val pool = categories.associateWith { category ->
+            val backToPool = release.values.flatten().filter { it.uploadStatus != UploadStatus.UPLOADED && CarCategory.of(it) == category }
+            (unassigned[category].orEmpty() + backToPool).sortedWith(cheapest)
+        }
+        val room = users
             .associateWith { user ->
-                CarCategory.entries.sumOf { need.getValue(user).getValue(it) - give.getValue(user).getValue(it) }
+                user.quota - held.getValue(user).values.sumOf { it.size } + release.getValue(user).size - give.getValue(user).values.sum()
             }.toMutableMap()
         for (category in properties.fallbackOrder) {
-            val totalShortage = shortage.values.sum()
-            if (totalShortage == 0) break
-            val remaining = supply[category].orEmpty().size - give.values.sumOf { it.getValue(category) }
-            val shares = if (remaining >= totalShortage) shortage.toMap() else apportion(remaining, shortage)
+            val totalRoom = room.values.sum()
+            if (totalRoom == 0) break
+            val remaining = pool.getValue(category).size - give.values.sumOf { it.getValue(category) }
+            val shares = if (remaining >= totalRoom) room.toMap() else apportion(remaining, room)
             shares.forEach { (user, n) ->
                 give.getValue(user)[category] = give.getValue(user).getValue(category) + n
-                shortage[user] = shortage.getValue(user) - n
+                room[user] = room.getValue(user) - n
             }
             if (shares.values.sum() > 0) logger.info("fallback $category: +${shares.values.sum()}")
         }
 
         val assign = users.associateWith { mutableListOf<Car>() }
-        for (category in CarCategory.entries) {
-            deal(supply[category].orEmpty(), give.mapValues { it.value.getValue(category) }).forEach { (user, dealt) ->
+        for (category in categories) {
+            deal(pool.getValue(category), give.mapValues { it.value.getValue(category) }).forEach { (user, dealt) ->
                 assign.getValue(user) += dealt
             }
         }
-        return AssignPlan(assign, release, shortfall = shortage.values.sum())
+        return AssignPlan(assign, release.values.flatten(), shortfall = room.values.sum())
     }
 
     /** total을 weight 비례로 정수 분배(최대 잔여). weight 합 0이면 전부 0 */

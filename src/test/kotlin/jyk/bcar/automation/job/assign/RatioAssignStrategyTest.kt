@@ -102,4 +102,34 @@ class RatioAssignStrategyTest {
         assertEquals(2, plan.release.size)
         assertEquals(mapOf(DOMESTIC_UNDER_1300 to 2, DOMESTIC_OVER_1300 to 2), plan.categories(b))
     }
+
+    @Test
+    fun keepsFallbackCarsWhenPreferredCategoryStillShort() {
+        val first = strategy.plan(listOf(a), under(10) + over(1))
+        assertEquals(mapOf(DOMESTIC_UNDER_1300 to 3, DOMESTIC_OVER_1300 to 1), first.categories(a))
+
+        val held = first.assign.getValue(a).map { it.assignTo(a, java.time.Instant.EPOCH) }
+        val rest = (under(10) + over(1)).filter { c -> held.none { it.carNumber == c.carNumber } }
+        val second = strategy.plan(listOf(a), held + rest)
+
+        assertEquals(emptyList<Car>(), second.assign.getValue(a))
+        assertEquals(emptyList<Car>(), second.release)
+        assertEquals(0, second.shortfall)
+    }
+
+    @Test
+    fun swapsFallbackCarsOnceInRatioSupplyAppears() {
+        val held =
+            listOf(
+                "h1" to 1001,
+                "h2" to 1002,
+                "h3" to 1003,
+            ).map { (n, p) -> car(n, p, assignedUserId = "a", status = UploadStatus.PENDING) } +
+                car("o0", 2000, assignedUserId = "a", status = UploadStatus.PENDING)
+
+        val plan = strategy.plan(listOf(a), held + over(1))
+
+        assertEquals(listOf("h3"), plan.release.map { it.carNumber })
+        assertEquals(listOf("o1"), plan.numbers(a))
+    }
 }
