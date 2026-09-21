@@ -5,6 +5,7 @@ import jyk.bcar.domain.TargetAdminUser
 
 data class AssignPlan(
     val assign: Map<TargetAdminUser, List<Car>>,
+    /** 할당에서 빠지는 차량. assign 쪽으로 옮겨 간 차량은 포함하지 않는다 */
     val release: List<Car>,
     /** 유저 quota 합 대비 못 채운 대수. 폴백까지 다 쓴 뒤의 값 */
     val shortfall: Int,

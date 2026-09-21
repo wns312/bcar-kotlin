@@ -99,7 +99,9 @@ class RatioAssignStrategy(
                 assign.getValue(user) += dealt
             }
         }
-        return AssignPlan(assign, release.values.flatten(), shortfall = room.values.sum())
+        // 해제 즉시 다른 유저에게 간 차는 할당본 하나로만 저장돼야 한다 (같은 키 두 버전이면 뒤에 쓴 쪽이 이긴다)
+        val reassigned = assign.values.flatten().mapTo(HashSet()) { it.carNumber }
+        return AssignPlan(assign, release.values.flatten().filterNot { it.carNumber in reassigned }, shortfall = room.values.sum())
     }
 
     /** total을 weight 비례로 정수 분배(최대 잔여). weight 합 0이면 전부 0 */

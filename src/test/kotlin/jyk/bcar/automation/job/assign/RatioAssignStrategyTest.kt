@@ -99,8 +99,16 @@ class RatioAssignStrategyTest {
 
         val plan = strategy.plan(listOf(a, b), held + over(4))
 
-        assertEquals(2, plan.release.size)
         assertEquals(mapOf(DOMESTIC_UNDER_1300 to 2, DOMESTIC_OVER_1300 to 2), plan.categories(b))
+        assertEquals(
+            setOf("h3", "h4"),
+            plan.assign
+                .getValue(b)
+                .filter { it.price < 1300 }
+                .map { it.carNumber }
+                .toSet(),
+        )
+        assertEquals(emptyList<Car>(), plan.release)
     }
 
     @Test
