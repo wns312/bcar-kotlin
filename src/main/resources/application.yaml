@@ -18,6 +18,18 @@ batch:
   detail-shards: 8
   detail-max-hops: 300
   jobs:
+    assign-cars:
+      queue: bcar-dev-queue
+      definition: bcar-dev-job
     collect-detail:
       queue: bcar-dev-detail-queue
       definition: bcar-dev-detail-job
+
+assign:
+  ratio:
+    domestic-under-1300: 0.3
+    domestic-over-1300: 0.45
+    imported: 0.1
+    cargo: 0.1
+    truck: 0.05
+  fallback-order: [domestic-under-1300, domestic-over-1300, imported, cargo, truck]

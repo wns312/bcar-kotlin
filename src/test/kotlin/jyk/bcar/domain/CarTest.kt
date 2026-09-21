@@ -4,19 +4,27 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 class CarTest {
-    private fun car(number: String, price: Int = 1000, isActive: Boolean = true, detail: CarDetail? = null) =
-        Car(
-            carNumber = number,
-            title = "현대 유니버스",
-            company = "현대",
-            detailPageNum = "1",
-            agency = "상사",
-            seller = "홍길동",
-            sellerPhone = "010-0000-0000",
-            price = price,
-            isActive = isActive,
-            detail = detail,
-        )
+    private fun car(
+        number: String,
+        price: Int = 1000,
+        isActive: Boolean = true,
+        detail: CarDetail? = null,
+        assignedUserId: String? = null,
+        uploadStatus: UploadStatus = UploadStatus.NONE,
+    ) = Car(
+        carNumber = number,
+        title = "현대 유니버스",
+        company = "현대",
+        detailPageNum = "1",
+        agency = "상사",
+        seller = "홍길동",
+        sellerPhone = "010-0000-0000",
+        price = price,
+        isActive = isActive,
+        detail = detail,
+        assignedUserId = assignedUserId,
+        uploadStatus = uploadStatus,
+    )
 
     private val detail = CarDetail(
         category = "대형",
@@ -60,5 +68,33 @@ class CarTest {
         assertEquals(false, changes.getValue("gone").isActive)
         assertEquals(true, changes.getValue("relisted").isActive)
         assertEquals(null, changes.getValue("relisted").detail)
+    }
+
+    @Test
+    fun reconcileKeepsAssignmentAndMarksUploadedForRemoval() {
+        val existing = listOf(
+            car("kept", assignedUserId = "u1", uploadStatus = UploadStatus.PENDING),
+            car("goneUploaded", assignedUserId = "u1", uploadStatus = UploadStatus.UPLOADED),
+            car("gonePending", assignedUserId = "u1", uploadStatus = UploadStatus.PENDING),
+        )
+        val collected = listOf(car("kept", price = 900))
+
+        val changes = Car.reconcile(existing, collected).associateBy { it.carNumber }
+
+        assertEquals("u1", changes.getValue("kept").assignedUserId)
+        assertEquals(UploadStatus.PENDING, changes.getValue("kept").uploadStatus)
+        assertEquals(UploadStatus.NEEDS_REMOVAL, changes.getValue("goneUploaded").uploadStatus)
+        assertEquals(UploadStatus.PENDING, changes.getValue("gonePending").uploadStatus)
+    }
+
+    @Test
+    fun releaseKeepsAssignmentOnlyWhenUploaded() {
+        val uploaded = car("x", assignedUserId = "u1", uploadStatus = UploadStatus.UPLOADED).release()
+        val pending = car("y", assignedUserId = "u1", uploadStatus = UploadStatus.PENDING).release()
+
+        assertEquals("u1", uploaded.assignedUserId)
+        assertEquals(UploadStatus.NEEDS_REMOVAL, uploaded.uploadStatus)
+        assertEquals(null, pending.assignedUserId)
+        assertEquals(UploadStatus.NONE, pending.uploadStatus)
     }
 }

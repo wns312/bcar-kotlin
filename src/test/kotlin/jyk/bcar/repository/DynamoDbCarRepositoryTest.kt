@@ -2,8 +2,10 @@ package jyk.bcar.repository
 
 import jyk.bcar.domain.Car
 import jyk.bcar.domain.CarDetail
+import jyk.bcar.domain.UploadStatus
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import java.time.Instant
 
 class DynamoDbCarRepositoryTest {
     @Test
@@ -40,7 +42,27 @@ class DynamoDbCarRepositoryTest {
             ),
         )
 
+        val assigned = withDetail.copy(
+            assignedUserId = "user-1",
+            assignedAt = Instant.parse("2026-09-20T01:02:03Z"),
+            targetSite = "kcr",
+            uploadStatus = UploadStatus.UPLOADED,
+            uploadedAt = Instant.parse("2026-09-20T02:00:00Z"),
+            uploadError = "boom",
+            externalId = "ext-9",
+        )
+
         assertEquals(withoutDetail, itemToCar(carToItem(withoutDetail)))
         assertEquals(withDetail, itemToCar(carToItem(withDetail)))
+        assertEquals(assigned, itemToCar(carToItem(assigned)))
+    }
+
+    @Test
+    fun legacyItemWithoutUploadFieldsReadsAsNone() {
+        val legacy = carToItem(
+            Car("1", "t", "c", "1", "a", "s", "p", 1),
+        ).filterKeys { it != "uploadStatus" }
+
+        assertEquals(UploadStatus.NONE, itemToCar(legacy).uploadStatus)
     }
 }

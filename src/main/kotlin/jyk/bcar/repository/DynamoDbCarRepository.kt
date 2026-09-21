@@ -3,6 +3,7 @@ package jyk.bcar.repository
 import jyk.bcar.configuration.DynamoDbProperties
 import jyk.bcar.domain.Car
 import jyk.bcar.domain.CarDetail
+import jyk.bcar.domain.UploadStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -14,6 +15,7 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import software.amazon.awssdk.services.dynamodb.model.WriteRequest
 import java.time.Duration
+import java.time.Instant
 
 @Component
 class DynamoDbCarRepository(
@@ -22,6 +24,7 @@ class DynamoDbCarRepository(
 ) : CarRepository {
     companion object {
         private const val BATCH_WRITE_LIMIT = 25
+        private const val ASSIGNED_USER_INDEX = "assignedUserId-index"
         private const val CONTROL_KEY = "_control"
         private const val STOP_DETAIL_ATTR = "stopDetail"
 
@@ -52,6 +55,18 @@ class DynamoDbCarRepository(
             .map(::itemToCar)
         logger.info("Scanned ${cars.size} cars from ${properties.carsTable} (segment $segment/$totalSegments)")
         cars
+    }
+
+    override suspend fun findByAssignedUser(userId: String): List<Car> = withContext(Dispatchers.IO) {
+        client
+            .queryPaginator {
+                it
+                    .tableName(properties.carsTable)
+                    .indexName(ASSIGNED_USER_INDEX)
+                    .keyConditionExpression("assignedUserId = :u")
+                    .expressionAttributeValues(mapOf(":u" to s(userId)))
+            }.items()
+            .map(::itemToCar)
     }
 
     override suspend fun saveAll(cars: List<Car>) = withContext(Dispatchers.IO) {
@@ -88,6 +103,13 @@ internal fun carToItem(car: Car): Map<String, AttributeValue> = buildMap {
     put("price", n(car.price))
     put("isActive", AttributeValue.fromBool(car.isActive))
     car.detail?.let { put("detail", AttributeValue.fromM(detailToItem(it))) }
+    car.assignedUserId?.let { put("assignedUserId", s(it)) }
+    car.assignedAt?.let { put("assignedAt", s(it.toString())) }
+    car.targetSite?.let { put("targetSite", s(it)) }
+    put("uploadStatus", s(car.uploadStatus.name))
+    car.uploadedAt?.let { put("uploadedAt", s(it.toString())) }
+    car.uploadError?.let { put("uploadError", s(it)) }
+    car.externalId?.let { put("externalId", s(it)) }
 }
 
 internal fun itemToCar(item: Map<String, AttributeValue>): Car =
@@ -102,6 +124,13 @@ internal fun itemToCar(item: Map<String, AttributeValue>): Car =
         price = item.int("price"),
         isActive = item.getValue("isActive").bool(),
         detail = item["detail"]?.m()?.let(::itemToDetail),
+        assignedUserId = item["assignedUserId"]?.s(),
+        assignedAt = item["assignedAt"]?.s()?.let(Instant::parse),
+        targetSite = item["targetSite"]?.s(),
+        uploadStatus = item["uploadStatus"]?.s()?.let(UploadStatus::valueOf) ?: UploadStatus.NONE,
+        uploadedAt = item["uploadedAt"]?.s()?.let(Instant::parse),
+        uploadError = item["uploadError"]?.s(),
+        externalId = item["externalId"]?.s(),
     )
 
 private fun detailToItem(detail: CarDetail): Map<String, AttributeValue> = buildMap {

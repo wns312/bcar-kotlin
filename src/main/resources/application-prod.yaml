@@ -6,6 +6,9 @@ dynamodb:
 batch:
   detail-shards: 16
   jobs:
+    assign-cars:
+      queue: bcar-prod-queue
+      definition: bcar-prod-job
     collect-detail:
       queue: bcar-prod-detail-queue
       definition: bcar-prod-detail-job

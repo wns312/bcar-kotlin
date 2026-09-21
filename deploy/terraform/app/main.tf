@@ -189,6 +189,18 @@ resource "aws_dynamodb_table" "cars" {
     type = "S"
   }
 
+  attribute {
+    name = "assignedUserId"
+    type = "S"
+  }
+
+  # 희소 인덱스: 할당된 차량만 들어간다
+  global_secondary_index {
+    name            = "assignedUserId-index"
+    hash_key        = "assignedUserId"
+    projection_type = "ALL"
+  }
+
   tags = local.tags
 }
 
@@ -203,16 +215,20 @@ resource "aws_iam_role_policy" "batch_job_dynamodb" {
         Effect = "Allow"
         Action = [
           "dynamodb:Scan",
+          "dynamodb:Query",
           "dynamodb:GetItem",
           "dynamodb:BatchWriteItem"
         ]
-        Resource = aws_dynamodb_table.cars.arn
+        Resource = [
+          aws_dynamodb_table.cars.arn,
+          "${aws_dynamodb_table.cars.arn}/index/*"
+        ]
       }
     ]
   })
 }
 
-# 잡이 후속 잡(collect-detail 체인)을 직접 제출한다
+# 잡이 후속 잡(assign-cars, collect-detail 체인)을 직접 제출한다
 resource "aws_iam_role_policy" "batch_job_submit" {
   name = "${local.name_prefix}-batch-job-submit"
   role = aws_iam_role.batch_job.id
@@ -225,6 +241,9 @@ resource "aws_iam_role_policy" "batch_job_submit" {
         Action = ["batch:SubmitJob"]
         # 리비전 없이 정의 이름으로 제출하면 IAM은 리비전 없는 ARN으로 평가한다
         Resource = [
+          aws_batch_job_queue.main.arn,
+          aws_batch_job_definition.main.arn_prefix,
+          "${aws_batch_job_definition.main.arn_prefix}:*",
           aws_batch_job_queue.detail.arn,
           aws_batch_job_definition.detail.arn_prefix,
           "${aws_batch_job_definition.detail.arn_prefix}:*"
