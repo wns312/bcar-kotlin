@@ -17,8 +17,8 @@ class RatioAssignStrategyTest {
             fallbackOrder = listOf(DOMESTIC_UNDER_1300, DOMESTIC_OVER_1300),
         ),
     )
-    private val a = TargetAdminUser("a", "pw", "kcr", quota = 4)
-    private val b = TargetAdminUser("b", "pw", "kcr", quota = 4)
+    private val a = TargetAdminUser("a", "pw", "kcr", quota = 4, baseUrl = "kcr.test")
+    private val b = TargetAdminUser("b", "pw", "kcr", quota = 4, baseUrl = "kcr.test")
 
     private fun car(
         number: String,
@@ -168,6 +168,21 @@ class RatioAssignStrategyTest {
 
         assertEquals(listOf("unknown"), plan.release.map { it.carNumber })
         assertEquals(listOf("u1"), plan.numbers(a))
+    }
+
+    @Test
+    fun releasesCarsHeldByUsersMissingFromSheet() {
+        val held = listOf(
+            car("gone1", 1100, assignedUserId = "removed", status = UploadStatus.PENDING),
+            car("gone2", 2100, assignedUserId = "removed", status = UploadStatus.UPLOADED),
+            car("gone3", 1200, assignedUserId = "removed", status = UploadStatus.UPLOADING),
+        )
+
+        val plan = strategy.plan(listOf(a), held)
+
+        // 해제된 미업로드 차는 같은 실행에서 남은 유저에게 가고, 그 몫은 할당본으로만 저장된다
+        assertEquals(listOf("gone1"), plan.numbers(a))
+        assertEquals(listOf("gone2"), plan.release.map { it.carNumber })
     }
 
     @Test
