@@ -6,6 +6,7 @@ import jyk.bcar.automation.job.act.sources.detail.CollectDetailPageBytesRequest
 import jyk.bcar.automation.job.act.sources.detail.DetailExtractor
 import jyk.bcar.automation.job.act.sources.detail.DetailExtractorRequest
 import jyk.bcar.automation.job.result.CollectDetailResult
+import jyk.bcar.configuration.BatchProperties
 import jyk.bcar.domain.Car
 import jyk.bcar.domain.CarDetail
 import jyk.bcar.repository.CarRepository
@@ -26,6 +27,7 @@ import org.springframework.web.reactive.function.client.WebClient
 class CollectDetailJob(
     private val carRepository: CarRepository,
     private val args: ApplicationArguments,
+    private val batchProperties: BatchProperties,
     webClient: WebClient,
 ) : AutomationJob<CollectDetailResult> {
     private val logger = LoggerFactory.getLogger(this::class.java)
@@ -68,7 +70,10 @@ class CollectDetailJob(
                 }
                 done++
                 // 파싱 실패 = 페이지가 없거나 바뀜. 비활성으로 내려 다음 hop이 같은 걸 또 긁지 않게. 목록에 다시 나오면 reconcile이 되살림
-                updates += parseDetail(car, bytes)?.let { car.copy(detail = it) } ?: car.copy(isActive = false)
+                updates += when (val parsed = parseDetail(car, bytes)) {
+                    is ParsedDetail.Ok -> car.copy(detail = parsed.detail, detailError = null)
+                    is ParsedDetail.Failed -> car.copy(isActive = false, detailError = parsed.reason)
+                }
             }
             carRepository.saveAll(updates)
             logger.info("Details progress: $done/${cars.size}")
@@ -78,26 +83,45 @@ class CollectDetailJob(
 
         val remaining = cars.size - done
         val idleHops = if (done == 0) idle + 1 else 0
+        val chainEnded = remaining == 0 || hop >= batchProperties.detailMaxHops || idleHops >= batchProperties.detailMaxIdleHops
+        val chainsDone = if (chainEnded) carRepository.markDetailChainDone() else 0
         CollectDetailResult(
             shard = shard,
             shards = shards,
             hop = hop,
             remaining = remaining,
             idleHops = idleHops,
-            message = "shard=$shard/$shards hop=$hop done=$done remaining=$remaining blocked=$blocked idleHops=$idleHops",
+            chainEnded = chainEnded,
+            chainsDone = chainsDone,
+            message = "shard=$shard/$shards hop=$hop done=$done remaining=$remaining blocked=$blocked " +
+                "idleHops=$idleHops chainEnded=$chainEnded chainsDone=$chainsDone/$shards",
         )
     }
 
     private fun intArg(name: String): Int? = args.getOptionValues(name)?.firstOrNull()?.toInt()
 
-    private suspend fun parseDetail(car: Car, bytes: ByteArray): CarDetail? =
+    private suspend fun parseDetail(car: Car, bytes: ByteArray): ParsedDetail =
         try {
-            detailExtractor.doAct(DetailExtractorRequest(bytes, CharSet.EUC_KR, baseUri = ""))
+            ParsedDetail.Ok(detailExtractor.doAct(DetailExtractorRequest(bytes, CharSet.EUC_KR, baseUri = "")))
         } catch (e: IllegalArgumentException) {
-            logger.warn("Unparseable detail for ${car.carNumber} (m_no=${car.detailPageNum}): ${e.message}")
-            null
+            unparseable(car, e)
         } catch (e: IllegalStateException) {
-            logger.warn("Unparseable detail for ${car.carNumber} (m_no=${car.detailPageNum}): ${e.message}")
-            null
+            unparseable(car, e)
         }
+
+    private fun unparseable(car: Car, e: Exception): ParsedDetail.Failed {
+        val reason = e.message ?: e::class.simpleName.orEmpty()
+        logger.warn("Unparseable detail for ${car.carNumber} (m_no=${car.detailPageNum}): $reason")
+        return ParsedDetail.Failed(reason)
+    }
+}
+
+private sealed interface ParsedDetail {
+    data class Ok(
+        val detail: CarDetail,
+    ) : ParsedDetail
+
+    data class Failed(
+        val reason: String,
+    ) : ParsedDetail
 }

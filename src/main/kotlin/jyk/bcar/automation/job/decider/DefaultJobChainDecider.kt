@@ -26,12 +26,11 @@ class DefaultJobChainDecider(
                 // _control.stopDetail은 파이프라인 전체를 세우는 스위치다
                 result.stopped -> emptyList()
                 // 잡 하나가 IP 하나 분량만 처리하므로 남은 게 있으면 같은 shard를 새 잡(=새 IP)으로 이어간다
-                result.remaining > 0 &&
-                    result.hop < batchProperties.detailMaxHops &&
-                    result.idleHops < batchProperties.detailMaxIdleHops ->
+                !result.chainEnded ->
                     listOf(detailRequest(shard = result.shard, shards = result.shards, hop = result.hop + 1, idle = result.idleHops))
-                // shard마다 끝나는 시점이 달라 여러 번 제출될 수 있다. assign은 멱등이고 동시 실행만 막는다
-                else -> listOf(NextJobRequest(jobName = "assign-cars", skipIfActive = "assign-cars"))
+                // 마지막으로 끝난 체인만 제출한다. 앞서 끝난 체인들이 제출하면 아직 수집 중인 shard의 결과가 빠진 채로 할당된다
+                result.chainsDone >= result.shards -> listOf(NextJobRequest(jobName = "assign-cars", skipIfActive = "assign-cars"))
+                else -> emptyList()
             }
             else -> emptyList()
         }

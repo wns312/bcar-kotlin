@@ -85,6 +85,8 @@ class CollectDraftJob(
         val collected = busDraftCars + truckDraftCars + allDraftCars
         val changes = Car.reconcile(existing = carRepository.findAll(), collected = collected)
         carRepository.saveAll(changes)
+        // 이번 launch의 detail 체인 카운터. 마지막 체인이 assign을 제출하는 기준이 된다
+        carRepository.resetDetailChains()
         logger.info("Drafts reconciled: collected=${collected.size}, changed=${changes.size}")
 
         CollectDraftResult(message = "drafts collected")

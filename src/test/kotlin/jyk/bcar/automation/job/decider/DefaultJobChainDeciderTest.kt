@@ -36,22 +36,21 @@ class DefaultJobChainDeciderTest {
     }
 
     @Test
-    fun detailChainHandsOffToAssignWhenDoneOrFused() {
-        val ended = listOf(
-            CollectDetailResult(0, 3, hop = 1, remaining = 0),
-            CollectDetailResult(0, 3, hop = 5, remaining = 40),
-            CollectDetailResult(0, 3, hop = 1, remaining = 40, idleHops = 2),
-        )
+    fun onlyTheLastFinishedChainSubmitsAssign() {
+        val notLast = decider.decide("collect-detail", CollectDetailResult(0, 3, hop = 1, remaining = 0, chainEnded = true, chainsDone = 2))
+        assertTrue(notLast.isEmpty())
 
-        ended.forEach {
-            val next = decider.decide("collect-detail", it).single()
-            assertEquals("assign-cars", next.jobName)
-            assertEquals("assign-cars", next.skipIfActive)
-        }
+        val last = decider
+            .decide("collect-detail", CollectDetailResult(0, 3, hop = 1, remaining = 0, chainEnded = true, chainsDone = 3))
+            .single()
+        assertEquals("assign-cars", last.jobName)
+        assertEquals("assign-cars", last.skipIfActive)
     }
 
     @Test
     fun stopFlagEndsThePipeline() {
-        assertTrue(decider.decide("collect-detail", CollectDetailResult(0, 3, hop = 1, remaining = 40, stopped = true)).isEmpty())
+        val stopped = CollectDetailResult(0, 3, hop = 1, remaining = 40, stopped = true, chainEnded = true, chainsDone = 3)
+
+        assertTrue(decider.decide("collect-detail", stopped).isEmpty())
     }
 }

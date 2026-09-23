@@ -23,10 +23,23 @@ class RatioAssignStrategyTest {
     private fun car(
         number: String,
         price: Int,
+        company: String = "현대",
         isActive: Boolean = true,
         assignedUserId: String? = null,
         status: UploadStatus = UploadStatus.NONE,
-    ) = Car(number, "현대 차", "현대", "1", "ag", "s", "p", price, isActive = isActive, assignedUserId = assignedUserId, uploadStatus = status)
+    ) = Car(
+        number,
+        "$company 차",
+        company,
+        "1",
+        "ag",
+        "s",
+        "p",
+        price,
+        isActive = isActive,
+        assignedUserId = assignedUserId,
+        uploadStatus = status,
+    )
 
     private fun under(n: Int) = (1..n).map { car("u$it", 1000 + it) }
 
@@ -139,5 +152,36 @@ class RatioAssignStrategyTest {
 
         assertEquals(listOf("h3"), plan.release.map { it.carNumber })
         assertEquals(listOf("o1"), plan.numbers(a))
+    }
+
+    @Test
+    fun neverAssignsUnclassifiableCarsAndReleasesThemFirst() {
+        val held = listOf(
+            car("unknown", 1200, company = "듣보모터스", assignedUserId = "a", status = UploadStatus.PENDING),
+            car("h1", 1100, assignedUserId = "a", status = UploadStatus.PENDING),
+            car("h2", 2100, assignedUserId = "a", status = UploadStatus.PENDING),
+            car("h3", 2200, assignedUserId = "a", status = UploadStatus.PENDING),
+        )
+        val pool = listOf(car("u1", 1000), car("x1", 1000, company = "듣보모터스"))
+
+        val plan = strategy.plan(listOf(a), held + pool)
+
+        assertEquals(listOf("unknown"), plan.release.map { it.carNumber })
+        assertEquals(listOf("u1"), plan.numbers(a))
+    }
+
+    @Test
+    fun neverReleasesCarsBeingUploaded() {
+        val held = listOf(
+            car("up1", 1300, assignedUserId = "a", status = UploadStatus.UPLOADING),
+            car("up2", 1200, assignedUserId = "a", status = UploadStatus.UPLOADING),
+            car("up3", 1100, assignedUserId = "a", status = UploadStatus.UPLOADING),
+            car("pend", 1000, assignedUserId = "a", status = UploadStatus.PENDING),
+        )
+
+        val plan = strategy.plan(listOf(a), held + over(4))
+
+        assertEquals(listOf("pend"), plan.release.map { it.carNumber })
+        assertEquals(1, plan.assign.getValue(a).size)
     }
 }

@@ -27,13 +27,39 @@ enum class CarCategory {
             "한국특장차",
             "한국메리트",
         )
+        private val importedCompanies = setOf(
+            "렉서스",
+            "벤츠",
+            "아우디",
+            "미니",
+            "테슬라",
+            "포드",
+            "캐딜락",
+            "푸조",
+            "지프",
+            "포르쉐",
+            "혼다",
+            "링컨",
+            "도요타",
+            "토요타",
+            "벤틀리",
+            "BMW",
+            "크라이슬러",
+            "랜드로버",
+            "로버",
+            "닛산",
+            "볼보",
+            "폭스바겐",
+            "인피니티",
+        )
         private val cargo = Regex("봉고|포터")
         private val truck = Regex("톤|덤프|마이티|메가트럭|에어로|카운티|그랜버드|라이노|복사|세레스|콤보|타이탄|트레이드|파맥스|르노마스터")
 
-        // ponytail: 모르는 제조사는 국산으로 본다. 수입 브랜드가 새로 나오면 domesticCompanies 대신 수입 목록으로 뒤집는다
-        fun of(car: Car): CarCategory =
+        /** 모르는 제조사는 null — 어느 쿼터에도 넣을 수 없으니 할당 대상에서 뺀다 */
+        fun of(car: Car): CarCategory? =
             when {
-                car.company !in domesticCompanies -> IMPORTED
+                car.company in importedCompanies -> IMPORTED
+                car.company !in domesticCompanies -> null
                 cargo.containsMatchIn(car.title) -> CARGO
                 truck.containsMatchIn(car.title) -> TRUCK
                 car.price <= 1300 -> DOMESTIC_UNDER_1300

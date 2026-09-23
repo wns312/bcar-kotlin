@@ -5,6 +5,9 @@ import java.time.Instant
 enum class UploadStatus {
     NONE,
     PENDING,
+
+    /** 업로드 잡이 올리는 중. assign이 건드리면 올리던 매물이 목록에서 사라진다 */
+    UPLOADING,
     UPLOADED,
     FAILED,
 
@@ -23,6 +26,8 @@ data class Car(
     val price: Int,
     val isActive: Boolean = true,
     val detail: CarDetail? = null,
+    /** 상세 파싱 실패 사유. 다음 수집이 성공하면 비워진다 */
+    val detailError: String? = null,
     val assignedUserId: String? = null,
     val assignedAt: Instant? = null,
     val targetSite: String? = null,
