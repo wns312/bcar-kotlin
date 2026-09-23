@@ -103,6 +103,18 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 
 `collect-draft` 성공 시 `AwsBatchJobSubmitter`가 `batch.jobs.<job>` 설정의 큐/정의로 실제 Batch 잡을 제출합니다. 로컬에서 실수로 제출하지 않도록 `--next=false`를 권장합니다.
 
+## 4-1) 운영 스크립트
+
+앱이 하지 않는 일회성 작업은 [`tools/bcar_admin.py`](../tools/bcar_admin.py)에 있다. `uv run`이 의존성을 알아서 받으므로 설치가 필요 없고, 쓰기 명령은 `--apply` 없이는 계획만 출력한다.
+
+```bash
+uv run tools/bcar_admin.py seed-dev --apply            # prod 수집 결과를 dev로 복사
+uv run tools/bcar_admin.py fill-users --env dev --accounts-env <구 .env 경로>
+uv run tools/bcar_admin.py control --env dev           # _control 조회
+```
+
+dev에서 상세를 새로 긁으면 몇 시간이 걸리고 IP가 막히므로, 검증 전에는 `seed-dev`로 채운다(할당·업로드 필드는 복사하지 않는다).
+
 ## 5) 실행 확인 포인트
 
 - `Collecting draft ids.` 로그 출력
