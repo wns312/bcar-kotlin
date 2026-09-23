@@ -15,6 +15,7 @@ class GoogleSheetsUserRepository(
     companion object {
         private const val SOURCE_ADMIN_USER_SHEET_NAME = "관리자계정정보"
         private const val TARGET_ADMIN_USER_SHEET_NAME = "교차로계정정보"
+        private const val SITE_SHEET_NAME = "사이트정보"
     }
 
     private val logger = LoggerFactory.getLogger(this::class.java)
@@ -43,6 +44,11 @@ class GoogleSheetsUserRepository(
                 rangeA1 = "A2:D", // label을 제외한 두번째 row부터 id, password, targetSite, quota
             )
 
+        val baseUrls = findBaseUrls()
+        // 주소를 모르는 유저를 건너뛰면 그 계정만 조용히 동기화되지 않는다. 시트가 틀렸으면 즉시 실패해야 한다
+        val unknownSites = result.mapNotNull { it.getOrNull(2) as? String }.distinct().filterNot { it in baseUrls }
+        check(unknownSites.isEmpty()) { "No baseUrl in '$SITE_SHEET_NAME' for targetSite: $unknownSites" }
+
         return result.mapIndexedNotNull { i, row ->
             try {
                 check(row.size == 4)
@@ -51,14 +57,27 @@ class GoogleSheetsUserRepository(
 
                 check(id is String && password is String && targetSite is String && quota is String)
 
-                TargetAdminUser(id = id, password = password, targetSite = targetSite, quota = quota.trim().toInt())
-            } catch (_: Exception) {
-                // 행에 비밀번호가 있으니 내용은 찍지 않는다
-                logger.error(
-                    "Target admin user row ${i + 2} skipped: expected 4 columns (id, password, targetSite, quota), got ${row.size}",
+                TargetAdminUser(
+                    id = id,
+                    password = password,
+                    targetSite = targetSite,
+                    quota = quota.trim().toInt(),
+                    baseUrl = baseUrls.getValue(targetSite),
                 )
+            } catch (e: Exception) {
+                // 행에 비밀번호가 있으니 내용은 찍지 않는다
+                logger.error("Target admin user row ${i + 2} skipped: ${e.message} (columns=${row.size})")
                 null
             }
         }
     }
+
+    private fun findBaseUrls(): Map<String, String> =
+        googleSheetsClient
+            .readRange(
+                spreadsheetId = googleProperties.sheets.id,
+                sheet = SITE_SHEET_NAME,
+                rangeA1 = "A2:B", // label을 제외한 두번째 row부터 targetSite, baseUrl
+            ).filter { it.size == 2 }
+            .associate { (targetSite, baseUrl) -> targetSite as String to baseUrl as String }
 }
