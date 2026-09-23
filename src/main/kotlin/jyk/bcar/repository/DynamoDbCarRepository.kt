@@ -1,8 +1,10 @@
 package jyk.bcar.repository
 
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import jyk.bcar.configuration.DynamoDbProperties
 import jyk.bcar.domain.Car
 import jyk.bcar.domain.CarDetail
+import jyk.bcar.domain.CategoryTree
 import jyk.bcar.domain.UploadStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -29,6 +31,8 @@ class DynamoDbCarRepository(
         private const val CONTROL_KEY = "_control"
         private const val STOP_DETAIL_ATTR = "stopDetail"
         private const val CHAINS_DONE_ATTR = "detailChainsDone"
+        private const val CATEGORIES_KEY = "_categories"
+        private const val TREE_ATTR = "tree"
 
         // Fargate에서 async(netty) 클라이언트가 응답 없이 매달린 적 있음. Secrets Manager와 같은 sync(apache) 경로 + 타임아웃
         fun defaultClient(): DynamoDbClient =
@@ -45,6 +49,7 @@ class DynamoDbCarRepository(
     }
 
     private val logger = LoggerFactory.getLogger(this::class.java)
+    private val objectMapper = jacksonObjectMapper()
 
     override suspend fun findAll(segment: Int, totalSegments: Int): List<Car> = withContext(Dispatchers.IO) {
         require(segment in 0 until totalSegments) { "segment=$segment out of range for totalSegments=$totalSegments" }
@@ -106,6 +111,29 @@ class DynamoDbCarRepository(
             .getValue(CHAINS_DONE_ATTR)
             .n()
             .toInt()
+    }
+
+    // ponytail: 트리(130KB)를 아이템 하나에 통째로. 400KB 한도에 닿으면 gzip하거나 별도 테이블로
+    override suspend fun findCategoryTree(): CategoryTree? = withContext(Dispatchers.IO) {
+        client
+            .getItem {
+                it.tableName(properties.carsTable).key(mapOf("carNumber" to AttributeValue.fromS(CATEGORIES_KEY)))
+            }.item()[TREE_ATTR]
+            ?.s()
+            ?.let { objectMapper.readValue(it, CategoryTree::class.java) }
+    }
+
+    override suspend fun saveCategoryTree(tree: CategoryTree) = withContext(Dispatchers.IO) {
+        client.putItem {
+            it.tableName(properties.carsTable).item(
+                mapOf(
+                    "carNumber" to s(CATEGORIES_KEY),
+                    TREE_ATTR to s(objectMapper.writeValueAsString(tree)),
+                    "updatedAt" to s(Instant.now().toString()),
+                ),
+            )
+        }
+        Unit
     }
 
     override suspend fun resetDetailChains() = withContext(Dispatchers.IO) {

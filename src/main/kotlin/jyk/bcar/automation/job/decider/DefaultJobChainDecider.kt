@@ -16,6 +16,8 @@ class DefaultJobChainDecider(
         currentJobName: String,
         result: JobResult,
     ): List<NextJobRequest> {
+        // 유저 하나가 실패해도 남은 유저는 돌아야 한다. 실패 자체는 Batch 잡 상태로 남는다
+        if (result is SyncUploadResult) return syncUploadRequest(result.nextUserId)
         if (!result.success) return emptyList()
 
         return when (result) {
@@ -36,7 +38,6 @@ class DefaultJobChainDecider(
             }
             // 업로드 체인 시작. 사이트 부하 때문에 유저 한 명씩 순서대로 돈다
             is AssignCarsResult -> syncUploadRequest(result.uploadUserIds.firstOrNull(), skipIfActive = "sync-upload-")
-            is SyncUploadResult -> syncUploadRequest(result.nextUserId)
             else -> emptyList()
         }
     }

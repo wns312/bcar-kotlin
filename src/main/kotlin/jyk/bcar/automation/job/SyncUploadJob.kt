@@ -8,6 +8,7 @@ import jyk.bcar.automation.playwright.PlaywrightSessionRunner
 import jyk.bcar.domain.UploadStatus
 import jyk.bcar.repository.CarRepository
 import jyk.bcar.repository.UserRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
@@ -39,23 +40,37 @@ class SyncUploadJob(
 
         val user = users[index]
         val delete = boolArg("delete", default = true)
+        val nextUserId = users.getOrNull(index + 1)?.id
         val cars = carRepository.findByAssignedUser(user.id)
         val expected = cars.filter { it.uploadStatus != UploadStatus.NEEDS_REMOVAL }
         logger.info(
             "Syncing ${user.id} (${user.targetSite}): 할당 ${cars.size}대, 사이트에 있어야 할 ${expected.size}대, delete=$delete",
         )
 
-        val synced = runner.withSession { session ->
-            session.usePage { page ->
-                TargetAdminLogin(page).doAct(user)
-                SyncUploadedCars(page).doAct(
-                    SyncUploadedCarsRequest(
-                        manageUrl = user.manageUrl,
-                        expected = expected.mapTo(HashSet()) { it.carNumber },
-                        delete = delete,
-                    ),
-                )
+        val synced = try {
+            runner.withSession { session ->
+                session.usePage { page ->
+                    TargetAdminLogin(page).doAct(user)
+                    SyncUploadedCars(page).doAct(
+                        SyncUploadedCarsRequest(
+                            manageUrl = user.manageUrl,
+                            expected = expected.mapTo(HashSet()) { it.carNumber },
+                            delete = delete,
+                        ),
+                    )
+                }
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 체인은 decider가 이어준다. 이 잡은 실패로 끝나 Batch 상태에 남는다
+            logger.error("Sync failed for ${user.id}", e)
+            return@withContext SyncUploadResult(
+                userId = user.id,
+                nextUserId = nextUserId,
+                success = false,
+                message = "user=${user.id} failed: ${e.message}",
+            )
         }
 
         val now = Instant.now()
@@ -65,7 +80,7 @@ class SyncUploadJob(
         val released = updates.count { it.assignedUserId == null }
         SyncUploadResult(
             userId = user.id,
-            nextUserId = users.getOrNull(index + 1)?.id,
+            nextUserId = nextUserId,
             onSite = synced.found.size,
             removed = synced.deleted.size,
             released = released,

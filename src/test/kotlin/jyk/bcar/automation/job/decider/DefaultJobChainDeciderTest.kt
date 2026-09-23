@@ -73,6 +73,10 @@ class DefaultJobChainDeciderTest {
         // 체인 중간 제출은 자기 자신이 아직 돌고 있으므로 skipIfActive를 걸지 않는다
         assertEquals(null, next.single().skipIfActive)
         assertEquals(emptyList<NextJobRequest>(), decider.decide("sync-upload", SyncUploadResult(userId = "u2")))
+
+        // 유저 하나가 실패해도 남은 유저는 돈다
+        val afterFailure = decider.decide("sync-upload", SyncUploadResult(userId = "u1", nextUserId = "u2", success = false))
+        assertEquals(mapOf("user" to "u2"), afterFailure.single().parameters)
         assertEquals(emptyList<NextJobRequest>(), decider.decide("assign-cars", AssignCarsResult(assigned = 0)))
     }
 }

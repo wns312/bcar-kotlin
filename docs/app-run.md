@@ -48,6 +48,7 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
   - `collect-detail`
   - `assign-cars`
   - `sync-upload`
+  - `collect-category`
 - 잘못된 값이면: `Unknown job ...` 예외 발생
 
 ### `--next`
@@ -75,6 +76,8 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 
 - `collect-draft` 성공 시 `batch.detail-shards`개의 shard 체인이 시작된다. 이전 launch의 체인이 아직 도는 shard는 건너뛴다(잡 이름 접두사로 확인).
 - shard 체인이 끝나면(남은 차량 0 / hop·idle fuse) `_control.detailChainsDone`을 원자적으로 1 올린다. 그 값이 `shards`와 같아진 **마지막 체인만** `assign-cars`를 제출한다 — 먼저 끝난 체인이 제출하면 아직 수집 중인 shard의 결과가 빠진 채로 할당된다. 카운터는 `collect-draft`가 0으로 리셋한다.
+- 잡이 실패해도 후속 제출은 한 번 계산된다 — 무엇을 이을지는 `JobChainDecider`가 정한다. `sync-upload`만 실패해도 다음 유저를 잇고(유저 하나 때문에 나머지가 멈추지 않게), 나머지 잡은 실패 시 아무것도 잇지 않는다. 실패는 Batch 잡 상태로 남는다.
+- `sync-upload` 잡 정의는 재시도하지 않는다(`attempts=1`) — 후속 유저를 이미 제출한 잡이 다시 돌면 체인이 두 갈래가 된다. 실패한 유저는 다음 launch에서 다시 맞춰진다.
 - `assign-cars`는 시트 유저 순서대로 `sync-upload` 체인을 시작한다. 유저 한 명이 끝나면 그 잡이 다음 유저를 제출한다 — 대상 사이트에 동시에 붙지 않게 한 번에 하나만 돈다. 체인이 이미 돌고 있으면 시작 잡은 제출되지 않는다(`sync-upload-` 접두사로 확인).
 - `_control.stopDetail`은 detail뿐 아니라 파이프라인 전체를 세운다 — assign도 제출하지 않는다.
 
@@ -94,6 +97,13 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 
 새로 할당된 차량은 `assignedUserId`, `targetSite`, `assignedAt`, `uploadStatus=PENDING`이 찍힌다.
 소스에서 사라졌거나 해제된 `UPLOADED` 차량은 `NEEDS_REMOVAL`로 표시된다. 아직 안 올라간 차가 소스에서 사라지면 그 자리에서 할당을 비운다(`Car.deactivate`).
+
+### `collect-category`
+대상 사이트 등록 폼의 분류 트리(세그먼트·제조사·모델·세부모델)를 훑어 cars 테이블 `_categories` 아이템에 JSON으로 저장한다. 폼이 이름이 아니라 `data-value`로 고르기 때문에 필요하다.
+
+파이프라인에 끼우지 않는다 — 트리는 거의 안 바뀌는데 매 launch마다 돌면 업로드만 늦어진다. 1분 30초쯤 걸리고 결과는 71KB 남짓(아이템 한도 400KB).
+
+등록 폼 진입에는 `products=car-normal-60`(기본등록) 파라미터가 필요하다. 없으면 광고상품 선택 페이지로 리다이렉트된다.
 
 ### `sync-upload`
 유저 한 명의 매물을 대상 사이트와 맞춘다. **사이트가 원천이다** — 관리자가 손으로 올리거나 내린 것도 DB에 반영된다.

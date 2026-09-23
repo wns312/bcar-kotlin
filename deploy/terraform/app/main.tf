@@ -389,6 +389,28 @@ resource "aws_batch_job_definition" "main" {
   tags = local.tags
 }
 
+# 분류 트리 수집. 파이프라인 밖에서 가끔 수동/스케줄로 돈다
+resource "aws_batch_job_definition" "category" {
+  name = "${local.name_prefix}-category-job"
+  type = "container"
+
+  platform_capabilities = ["FARGATE"]
+
+  container_properties = jsonencode(merge(local.container_properties, {
+    command = ["--job=collect-category", "--next=false"]
+  }))
+
+  retry_strategy {
+    attempts = 2
+  }
+
+  timeout {
+    attempt_duration_seconds = 1800
+  }
+
+  tags = local.tags
+}
+
 # 유저 한 명 = 잡 하나. 다음 유저는 잡이 직접 제출한다 — 대상 사이트에 동시에 붙지 않게
 resource "aws_batch_job_definition" "sync_upload" {
   name = "${local.name_prefix}-sync-upload-job"
@@ -400,9 +422,9 @@ resource "aws_batch_job_definition" "sync_upload" {
     command = ["--job=sync-upload", "--next=false"]
   }))
 
-  # 재시도는 사이트와 다시 맞추는 것부터 시작하므로 안전하다
+  # 재시도 금지 — 후속 유저를 제출한 잡이 다시 돌면 체인이 두 갈래가 된다. 실패한 유저는 다음 launch에서 다시 맞춘다
   retry_strategy {
-    attempts = 2
+    attempts = 1
   }
 
   timeout {

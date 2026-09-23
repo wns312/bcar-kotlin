@@ -50,6 +50,8 @@ dependencies {
     implementation("com.microsoft.playwright:playwright:1.50.0")
     // WebClient
     implementation("org.springframework.boot:spring-boot-starter-webflux")
+    // JSON (카테고리 트리 직렬화)
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     // JSoup
     implementation("org.jsoup:jsoup:1.21.2")
 

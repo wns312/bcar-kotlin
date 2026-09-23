@@ -1,6 +1,7 @@
 package jyk.bcar.repository
 
 import jyk.bcar.domain.Car
+import jyk.bcar.domain.CategoryTree
 
 interface CarRepository {
     /** DynamoDB 병렬 Scan 세그먼트. 여러 배치 잡이 테이블을 서로소로 나눠 읽을 때 사용 */
@@ -18,4 +19,9 @@ interface CarRepository {
     suspend fun markDetailChainDone(): Int
 
     suspend fun resetDetailChains()
+
+    /** `_categories` 아이템에 든 대상 사이트 분류 트리. 아직 수집 전이면 null */
+    suspend fun findCategoryTree(): CategoryTree?
+
+    suspend fun saveCategoryTree(tree: CategoryTree)
 }
