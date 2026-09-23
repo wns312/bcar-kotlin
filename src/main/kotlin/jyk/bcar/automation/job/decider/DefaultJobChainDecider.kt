@@ -1,6 +1,5 @@
 package jyk.bcar.automation.job.decider
 
-import jyk.bcar.automation.job.result.AssignCarsResult
 import jyk.bcar.automation.job.result.CollectDetailResult
 import jyk.bcar.automation.job.result.CollectDraftResult
 import jyk.bcar.automation.job.result.JobResult
@@ -18,23 +17,22 @@ class DefaultJobChainDecider(
         if (!result.success) return emptyList()
 
         return when (result) {
-            is CollectDraftResult -> listOf(NextJobRequest(jobName = "assign-cars"))
             // 체인 시작점. 이전 launch의 체인이 아직 도는 shard는 제출 측에서 건너뛴다
-            is AssignCarsResult -> (0 until batchProperties.detailShards).map { shard ->
+            is CollectDraftResult -> (0 until batchProperties.detailShards).map { shard ->
                 detailRequest(shard = shard, shards = batchProperties.detailShards, hop = 0, idle = 0)
                     .let { it.copy(skipIfActive = it.chainPrefix()) }
             }
-            // 잡 하나가 IP 하나 분량만 처리하므로 남은 게 있으면 같은 shard를 새 잡(=새 IP)으로 이어간다
-            is CollectDetailResult ->
-                if (!result.stopped &&
-                    result.remaining > 0 &&
+            is CollectDetailResult -> when {
+                // _control.stopDetail은 파이프라인 전체를 세우는 스위치다
+                result.stopped -> emptyList()
+                // 잡 하나가 IP 하나 분량만 처리하므로 남은 게 있으면 같은 shard를 새 잡(=새 IP)으로 이어간다
+                result.remaining > 0 &&
                     result.hop < batchProperties.detailMaxHops &&
-                    result.idleHops < batchProperties.detailMaxIdleHops
-                ) {
+                    result.idleHops < batchProperties.detailMaxIdleHops ->
                     listOf(detailRequest(shard = result.shard, shards = result.shards, hop = result.hop + 1, idle = result.idleHops))
-                } else {
-                    emptyList()
-                }
+                // shard마다 끝나는 시점이 달라 여러 번 제출될 수 있다. assign은 멱등이고 동시 실행만 막는다
+                else -> listOf(NextJobRequest(jobName = "assign-cars", skipIfActive = "assign-cars"))
+            }
             else -> emptyList()
         }
     }

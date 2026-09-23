@@ -48,7 +48,7 @@ class CollectDetailJob(
 
         val cars = carRepository
             .findAll(segment = shard, totalSegments = shards)
-            .filter { it.isActive && it.assignedUserId != null && it.detail == null }
+            .filter { it.isActive && it.detail == null }
         var done = 0
         var blocked = false
 
