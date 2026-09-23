@@ -63,14 +63,13 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 - `--idle=n`: 직전까지 연속 0건 hop 수 (체인이 자동으로 넘김). `batch.detail-max-idle-hops`(기본 5)에 도달하면 사이트 장애로 보고 종료
 
 상세 페이지는 IP당 ~15건에서 차단되므로 잡 하나는 IP 하나 분량만 처리하고, 남은 차량이 있으면 같은 shard의 후속 잡을 제출한다 (`--next=true`일 때).
-수집 대상은 **할당된 차량**(`assignedUserId != null`)만이다.
-
 ### 파이프라인
 
-`collect-draft → assign-cars → collect-detail(shard 체인) → upload(미구현)`
+`collect-draft → collect-detail(shard 체인) → assign-cars → upload(미구현)`
 
-- `collect-draft` 성공 시 `assign-cars` 1개 제출
-- `assign-cars` 성공 시 `batch.detail-shards`개의 shard 체인이 시작된다. 이전 launch의 체인이 아직 도는 shard는 건너뛴다(잡 이름 접두사로 확인).
+- `collect-draft` 성공 시 `batch.detail-shards`개의 shard 체인이 시작된다. 이전 launch의 체인이 아직 도는 shard는 건너뛴다(잡 이름 접두사로 확인).
+- shard 체인이 끝나면(남은 차량 0 / hop·idle fuse) `assign-cars`를 제출한다. shard마다 끝나는 시점이 달라 여러 번 제출될 수 있으나 assign은 멱등이고, 동시 실행은 잡 이름으로 막는다.
+- `_control.stopDetail`은 detail뿐 아니라 파이프라인 전체를 세운다 — assign도 제출하지 않는다.
 
 ### `assign-cars`
 시트 `교차로계정정보`(`A2:D` = id, password, targetSite, quota)의 유저마다 활성 차량을 `quota`까지 채운다. 실패하지 않는다 — 못 채운 대수는 `shortfall`로만 보고.
