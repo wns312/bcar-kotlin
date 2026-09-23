@@ -47,6 +47,7 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
   - `collect-draft`
   - `collect-detail`
   - `assign-cars`
+  - `sync-upload`
 - 잘못된 값이면: `Unknown job ...` 예외 발생
 
 ### `--next`
@@ -63,16 +64,22 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 - `--idle=n`: 직전까지 연속 0건 hop 수 (체인이 자동으로 넘김). `batch.detail-max-idle-hops`(기본 5)에 도달하면 사이트 장애로 보고 종료
 
 상세 페이지는 IP당 ~15건에서 차단되므로 잡 하나는 IP 하나 분량만 처리하고, 남은 차량이 있으면 같은 shard의 후속 잡을 제출한다 (`--next=true`일 때).
+
+### `sync-upload` 전용: `--user`, `--delete`
+- `--user=<id>`: 이 잡이 맡을 유저. 시트 `교차로계정정보`에 없는 id면 예외 — 시트에 없는 유저를 동기화하면 그 계정 매물을 통째로 지우게 된다
+- `--delete=false`: 사이트 목록을 훑기만 하고 지우지 않는다 (기본 `true`). 로그인·페이지 순회·행 파싱만 확인할 때 쓴다
+
 ### 파이프라인
 
-`collect-draft → collect-detail(shard 체인) → assign-cars → upload(미구현)`
+`collect-draft → collect-detail(shard 체인) → assign-cars → sync-upload(유저 체인)`
 
 - `collect-draft` 성공 시 `batch.detail-shards`개의 shard 체인이 시작된다. 이전 launch의 체인이 아직 도는 shard는 건너뛴다(잡 이름 접두사로 확인).
 - shard 체인이 끝나면(남은 차량 0 / hop·idle fuse) `_control.detailChainsDone`을 원자적으로 1 올린다. 그 값이 `shards`와 같아진 **마지막 체인만** `assign-cars`를 제출한다 — 먼저 끝난 체인이 제출하면 아직 수집 중인 shard의 결과가 빠진 채로 할당된다. 카운터는 `collect-draft`가 0으로 리셋한다.
+- `assign-cars`는 시트 유저 순서대로 `sync-upload` 체인을 시작한다. 유저 한 명이 끝나면 그 잡이 다음 유저를 제출한다 — 대상 사이트에 동시에 붙지 않게 한 번에 하나만 돈다. 체인이 이미 돌고 있으면 시작 잡은 제출되지 않는다(`sync-upload-` 접두사로 확인).
 - `_control.stopDetail`은 detail뿐 아니라 파이프라인 전체를 세운다 — assign도 제출하지 않는다.
 
 ### `assign-cars`
-시트 `교차로계정정보`(`A2:D` = id, password, targetSite, quota)의 유저마다 활성 차량을 `quota`까지 채운다. 실패하지 않는다 — 못 채운 대수는 `shortfall`로만 보고.
+시트 `교차로계정정보`(`A2:D` = id, password, targetSite, quota)의 유저마다 활성 차량을 `quota`까지 채운다. `targetSite`는 시트 `사이트정보`(`A2:B` = targetSite, baseUrl)에서 대상 사이트 주소로 바뀐다 — 매칭되는 행이 없으면 잡이 실패한다(건너뛰면 그 계정만 조용히 빠진다). 실패하지 않는다 — 못 채운 대수는 `shortfall`로만 보고.
 
 계산은 `RatioAssignStrategy`(`AssignStrategy` 빈 교체 가능):
 1. 유저별 카테고리 목표 = `quota × assign.ratio`. 카테고리는 `CarCategory.of` (수입 > 화물 > 트럭 > 국산 ≤1300 > 국산 >1300)
@@ -82,10 +89,19 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 5. 실제 차량은 싼 순으로 유저를 돌아가며 한 대씩
 
 분류 불가(`CarCategory.of`가 null — 국산·수입 제조사 목록 어디에도 없음) 차량은 새로 할당하지 않고, 이미 할당돼 있으면 해제 1순위다.
+시트에서 빠진 유저가 쥐고 있던 차량도 해제한다 — 아무도 손대지 않아 DB에 묶여 있게 되기 때문. 단 `UPLOADED`였던 차는 `NEEDS_REMOVAL`만 찍히고, 실제로 내리려면 그 계정이 시트로 돌아와야 한다.
 `uploadStatus=UPLOADING`인 차량은 해제하지 않으며, 비울 수 없는 자리만큼 신규 유입도 줄인다 — 업로드 중에 목록이 바뀌지 않게.
 
 새로 할당된 차량은 `assignedUserId`, `targetSite`, `assignedAt`, `uploadStatus=PENDING`이 찍힌다.
-소스에서 사라졌거나 해제된 `UPLOADED` 차량은 `NEEDS_REMOVAL`로 표시된다. 항상 assign → upload 순서로 돌고, 업로드 잡(미구현)이 `PENDING`/`FAILED`는 올리고 `NEEDS_REMOVAL`은 내린 뒤 `Car.release()`로 할당을 비운다.
+소스에서 사라졌거나 해제된 `UPLOADED` 차량은 `NEEDS_REMOVAL`로 표시된다. 아직 안 올라간 차가 소스에서 사라지면 그 자리에서 할당을 비운다(`Car.deactivate`).
+
+### `sync-upload`
+유저 한 명의 매물을 대상 사이트와 맞춘다. **사이트가 원천이다** — 관리자가 손으로 올리거나 내린 것도 DB에 반영된다.
+
+1. 로그인 → 관리 페이지를 **뒷 페이지부터** 순회(삭제 때문에 앞 페이지가 밀리지 않게)
+2. 각 행의 차량번호가 이 유저 할당분(`NEEDS_REMOVAL` 제외)에 없으면 체크해서 일괄 삭제 — `NEEDS_REMOVAL` 내리기가 여기서 같이 처리된다
+3. 결과를 `Car.syncedWith`로 반영: 사이트에 있으면 `UPLOADED`, 없으면 다시 올릴 대상(`PENDING`). `FAILED`는 그대로 두고(재시도 가드), `NEEDS_REMOVAL`은 `Car.release()`로 할당을 비운다
+4. 업로드 패스(`PENDING`/`FAILED` 등록)는 아직 미구현
 
 ## 4) `collect-draft` 실행 예시
 
@@ -110,6 +126,7 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 ```bash
 uv run tools/bcar_admin.py seed-dev --apply            # prod 수집 결과를 dev로 복사
 uv run tools/bcar_admin.py fill-users --env dev --accounts-env <구 .env 경로>
+uv run tools/bcar_admin.py copy-sheets --env prod --accounts-env <구 .env 경로>
 uv run tools/bcar_admin.py control --env dev           # _control 조회
 ```
 

@@ -52,3 +52,8 @@ output "batch_detail_job_definition_arn" {
   description = "Detail-collection job definition ARN."
   value       = aws_batch_job_definition.detail.arn
 }
+
+output "batch_sync_upload_job_definition_arn" {
+  description = "Sync-and-upload job definition ARN."
+  value       = aws_batch_job_definition.sync_upload.arn
+}

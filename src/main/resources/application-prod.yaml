@@ -12,3 +12,6 @@ batch:
     collect-detail:
       queue: bcar-prod-detail-queue
       definition: bcar-prod-detail-job
+    sync-upload:
+      queue: bcar-prod-sync-and-upload-queue
+      definition: bcar-prod-sync-upload-job

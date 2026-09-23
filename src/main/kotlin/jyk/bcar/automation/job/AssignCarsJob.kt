@@ -35,6 +35,7 @@ class AssignCarsJob(
             assigned = assigned.size,
             released = released.size,
             shortfall = plan.shortfall,
+            uploadUserIds = users.map { it.id },
             message = "assigned=${assigned.size} released=${released.size} shortfall=${plan.shortfall} users=${users.size}",
         )
     }

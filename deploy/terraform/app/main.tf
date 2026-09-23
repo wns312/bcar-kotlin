@@ -247,7 +247,10 @@ resource "aws_iam_role_policy" "batch_job_submit" {
           "${aws_batch_job_definition.main.arn_prefix}:*",
           aws_batch_job_queue.detail.arn,
           aws_batch_job_definition.detail.arn_prefix,
-          "${aws_batch_job_definition.detail.arn_prefix}:*"
+          "${aws_batch_job_definition.detail.arn_prefix}:*",
+          aws_batch_job_queue.sync_and_upload.arn,
+          aws_batch_job_definition.sync_upload.arn_prefix,
+          "${aws_batch_job_definition.sync_upload.arn_prefix}:*"
         ]
       },
       {
@@ -381,6 +384,29 @@ resource "aws_batch_job_definition" "main" {
 
   timeout {
     attempt_duration_seconds = 900
+  }
+
+  tags = local.tags
+}
+
+# 유저 한 명 = 잡 하나. 다음 유저는 잡이 직접 제출한다 — 대상 사이트에 동시에 붙지 않게
+resource "aws_batch_job_definition" "sync_upload" {
+  name = "${local.name_prefix}-sync-upload-job"
+  type = "container"
+
+  platform_capabilities = ["FARGATE"]
+
+  container_properties = jsonencode(merge(local.container_properties, {
+    command = ["--job=sync-upload", "--next=false"]
+  }))
+
+  # 재시도는 사이트와 다시 맞추는 것부터 시작하므로 안전하다
+  retry_strategy {
+    attempts = 2
+  }
+
+  timeout {
+    attempt_duration_seconds = 3600
   }
 
   tags = local.tags
