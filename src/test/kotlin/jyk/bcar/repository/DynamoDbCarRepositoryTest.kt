@@ -50,6 +50,7 @@ class DynamoDbCarRepositoryTest {
             uploadedAt = Instant.parse("2026-09-20T02:00:00Z"),
             uploadError = "boom",
             externalId = "ext-9",
+            detailError = "no category",
         )
 
         assertEquals(withoutDetail, itemToCar(carToItem(withoutDetail)))

@@ -68,7 +68,7 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 `collect-draft → collect-detail(shard 체인) → assign-cars → upload(미구현)`
 
 - `collect-draft` 성공 시 `batch.detail-shards`개의 shard 체인이 시작된다. 이전 launch의 체인이 아직 도는 shard는 건너뛴다(잡 이름 접두사로 확인).
-- shard 체인이 끝나면(남은 차량 0 / hop·idle fuse) `assign-cars`를 제출한다. shard마다 끝나는 시점이 달라 여러 번 제출될 수 있으나 assign은 멱등이고, 동시 실행은 잡 이름으로 막는다.
+- shard 체인이 끝나면(남은 차량 0 / hop·idle fuse) `_control.detailChainsDone`을 원자적으로 1 올린다. 그 값이 `shards`와 같아진 **마지막 체인만** `assign-cars`를 제출한다 — 먼저 끝난 체인이 제출하면 아직 수집 중인 shard의 결과가 빠진 채로 할당된다. 카운터는 `collect-draft`가 0으로 리셋한다.
 - `_control.stopDetail`은 detail뿐 아니라 파이프라인 전체를 세운다 — assign도 제출하지 않는다.
 
 ### `assign-cars`
@@ -80,6 +80,9 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 3. 비율 맞는 차가 들어와 quota를 넘기는 만큼만 초과 카테고리를 해제(안 올라간 것부터, 비싼 순). 폴백으로 채운 차는 대체 공급이 생길 때까지 유지 — 매 실행 재실행해도 변화 0. `UPLOADED` 해제는 `NEEDS_REMOVAL`로 표시만 하고 내릴 때까지 할당 정보 유지
 4. 남은 자리는 `assign.fallback-order` 카테고리의 남은 공급(해제분 포함)으로 채움
 5. 실제 차량은 싼 순으로 유저를 돌아가며 한 대씩
+
+분류 불가(`CarCategory.of`가 null — 국산·수입 제조사 목록 어디에도 없음) 차량은 새로 할당하지 않고, 이미 할당돼 있으면 해제 1순위다.
+`uploadStatus=UPLOADING`인 차량은 해제하지 않으며, 비울 수 없는 자리만큼 신규 유입도 줄인다 — 업로드 중에 목록이 바뀌지 않게.
 
 새로 할당된 차량은 `assignedUserId`, `targetSite`, `assignedAt`, `uploadStatus=PENDING`이 찍힌다.
 소스에서 사라졌거나 해제된 `UPLOADED` 차량은 `NEEDS_REMOVAL`로 표시된다. 항상 assign → upload 순서로 돌고, 업로드 잡(미구현)이 `PENDING`/`FAILED`는 올리고 `NEEDS_REMOVAL`은 내린 뒤 `Car.release()`로 할당을 비운다.

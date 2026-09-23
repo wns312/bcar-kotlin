@@ -15,4 +15,10 @@ class CarCategoryTest {
         assertEquals(CarCategory.DOMESTIC_OVER_1300, CarCategory.of(car("현대", "현대 그랜저", 1301)))
         assertEquals(CarCategory.DOMESTIC_UNDER_1300, CarCategory.of(car("한국특장차", "한국특장차 캠핑카", 1000)))
     }
+
+    @Test
+    fun unknownCompanyIsUnclassified() {
+        assertEquals(null, CarCategory.of(car("듣보모터스", "듣보모터스 신차", 1000)))
+        assertEquals(CarCategory.IMPORTED, CarCategory.of(car("BMW", "BMW 520d", 1000)))
+    }
 }

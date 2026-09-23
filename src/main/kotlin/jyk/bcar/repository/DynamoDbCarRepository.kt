@@ -13,6 +13,7 @@ import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
+import software.amazon.awssdk.services.dynamodb.model.ReturnValue
 import software.amazon.awssdk.services.dynamodb.model.WriteRequest
 import java.time.Duration
 import java.time.Instant
@@ -27,6 +28,7 @@ class DynamoDbCarRepository(
         private const val ASSIGNED_USER_INDEX = "assignedUserId-index"
         private const val CONTROL_KEY = "_control"
         private const val STOP_DETAIL_ATTR = "stopDetail"
+        private const val CHAINS_DONE_ATTR = "detailChainsDone"
 
         // Fargate에서 async(netty) 클라이언트가 응답 없이 매달린 적 있음. Secrets Manager와 같은 sync(apache) 경로 + 타임아웃
         fun defaultClient(): DynamoDbClient =
@@ -90,6 +92,32 @@ class DynamoDbCarRepository(
             }.item()[STOP_DETAIL_ATTR]
             ?.bool() == true
     }
+
+    override suspend fun markDetailChainDone(): Int = withContext(Dispatchers.IO) {
+        client
+            .updateItem {
+                it
+                    .tableName(properties.carsTable)
+                    .key(mapOf("carNumber" to AttributeValue.fromS(CONTROL_KEY)))
+                    .updateExpression("ADD $CHAINS_DONE_ATTR :one")
+                    .expressionAttributeValues(mapOf(":one" to n(1)))
+                    .returnValues(ReturnValue.UPDATED_NEW)
+            }.attributes()
+            .getValue(CHAINS_DONE_ATTR)
+            .n()
+            .toInt()
+    }
+
+    override suspend fun resetDetailChains() = withContext(Dispatchers.IO) {
+        client.updateItem {
+            it
+                .tableName(properties.carsTable)
+                .key(mapOf("carNumber" to AttributeValue.fromS(CONTROL_KEY)))
+                .updateExpression("SET $CHAINS_DONE_ATTR = :zero")
+                .expressionAttributeValues(mapOf(":zero" to n(0)))
+        }
+        Unit
+    }
 }
 
 internal fun carToItem(car: Car): Map<String, AttributeValue> = buildMap {
@@ -103,6 +131,7 @@ internal fun carToItem(car: Car): Map<String, AttributeValue> = buildMap {
     put("price", n(car.price))
     put("isActive", AttributeValue.fromBool(car.isActive))
     car.detail?.let { put("detail", AttributeValue.fromM(detailToItem(it))) }
+    car.detailError?.let { put("detailError", s(it)) }
     car.assignedUserId?.let { put("assignedUserId", s(it)) }
     car.assignedAt?.let { put("assignedAt", s(it.toString())) }
     car.targetSite?.let { put("targetSite", s(it)) }
@@ -124,6 +153,7 @@ internal fun itemToCar(item: Map<String, AttributeValue>): Car =
         price = item.int("price"),
         isActive = item.getValue("isActive").bool(),
         detail = item["detail"]?.m()?.let(::itemToDetail),
+        detailError = item["detailError"]?.s(),
         assignedUserId = item["assignedUserId"]?.s(),
         assignedAt = item["assignedAt"]?.s()?.let(Instant::parse),
         targetSite = item["targetSite"]?.s(),
