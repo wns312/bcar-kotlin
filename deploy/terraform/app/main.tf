@@ -217,6 +217,7 @@ resource "aws_iam_role_policy" "batch_job_dynamodb" {
           "dynamodb:Scan",
           "dynamodb:Query",
           "dynamodb:GetItem",
+          "dynamodb:PutItem",
           "dynamodb:UpdateItem",
           "dynamodb:BatchWriteItem"
         ]
