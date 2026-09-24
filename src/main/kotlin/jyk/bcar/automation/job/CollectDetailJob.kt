@@ -10,6 +10,7 @@ import jyk.bcar.automation.job.result.CollectDetailResult
 import jyk.bcar.configuration.BatchProperties
 import jyk.bcar.domain.Car
 import jyk.bcar.domain.CarDetail
+import jyk.bcar.domain.hasLeasePrice
 import jyk.bcar.repository.CarRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -107,7 +108,13 @@ class CollectDetailJob(
 
     private suspend fun parseDetail(car: Car, bytes: ByteArray): ParsedDetail =
         try {
-            ParsedDetail.Ok(detailExtractor.doAct(DetailExtractorRequest(bytes, CharSet.EUC_KR, baseUri = "")))
+            val detail = detailExtractor.doAct(DetailExtractorRequest(bytes, CharSet.EUC_KR, baseUri = ""))
+            if (car.hasLeasePrice(detail)) {
+                logger.info("월납입금 가격 제외: ${car.carNumber} ${car.price}만원 ${detail.modelYear} ${car.title}")
+                ParsedDetail.Excluded("리스 월납입금으로 보이는 가격")
+            } else {
+                ParsedDetail.Ok(detail)
+            }
         } catch (e: TakeoverListing) {
             logger.info("승계 매물 제외: ${car.carNumber} (m_no=${car.detailPageNum})")
             ParsedDetail.Excluded(e.message.orEmpty())
