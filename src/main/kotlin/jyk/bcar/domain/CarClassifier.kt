@@ -77,18 +77,26 @@ class CarClassifier(
         if (origin == CategoryTree.Origin.IMPORTED) return source
 
         // 제목에 든 이름 중 가장 긴 것이 정답에 가깝다 (그랜저 vs 그랜저HG)
-        val model = company.models
-            .filter { it.segment == segment.name }
+        val byTitle = company.models
             .sortedByDescending { modelKey(it.name).length }
-            .firstOrNull { car.title.contains(modelKey(it.name)) }
+            .filter { car.title.contains(modelKey(it.name)) }
+
+        // 소스 카테고리가 사이트 세그먼트와 어긋나는 모델이 있다 — 소스는 같은 그랜드스타렉스를
+        // 화물차·특장차·RV로 제각각 내려보내지만 사이트의 스타렉스는 승합에 있다.
+        // 세그먼트로 먼저 좁히고 못 찾으면 제조사 전체에서 찾는다. 모델이 비면 폼의 필수 항목을 못 채워 멈춘다
+        val model = byTitle.firstOrNull { it.segment == segment.name }
+            ?: byTitle.firstOrNull()
             ?: return source
+
+        // 폼은 세그먼트를 고르면 모델 목록을 다시 그린다 — 어긋나 찾은 모델은 그 모델의 세그먼트로 채워야 고를 수 있다
+        val modelSegment = tree.segments.firstOrNull { it.name == model.segment } ?: segment
 
         val plainTitle = car.title.replace(" ", "")
         val detailModel = model.detailModels
             .sortedByDescending { detailKey(it.name).length }
             .firstOrNull { plainTitle.contains(detailKey(it.name)) }
 
-        return source.copy(model = model, detailModel = detailModel)
+        return source.copy(segment = modelSegment, model = model, detailModel = detailModel)
     }
 
     private fun modelKey(name: String) = MODEL_ALIASES[name] ?: name
