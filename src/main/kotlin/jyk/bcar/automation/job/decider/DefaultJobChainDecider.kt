@@ -1,8 +1,10 @@
 package jyk.bcar.automation.job.decider
 
+import jyk.bcar.automation.job.result.AssignCarsResult
 import jyk.bcar.automation.job.result.CollectDetailResult
 import jyk.bcar.automation.job.result.CollectDraftResult
 import jyk.bcar.automation.job.result.JobResult
+import jyk.bcar.automation.job.result.SyncUploadResult
 import jyk.bcar.configuration.BatchProperties
 import org.springframework.stereotype.Component
 
@@ -14,6 +16,8 @@ class DefaultJobChainDecider(
         currentJobName: String,
         result: JobResult,
     ): List<NextJobRequest> {
+        // 유저 하나가 실패해도 남은 유저는 돌아야 한다. 실패 자체는 Batch 잡 상태로 남는다
+        if (result is SyncUploadResult) return syncUploadRequest(result.nextUserId)
         if (!result.success) return emptyList()
 
         return when (result) {
@@ -32,9 +36,16 @@ class DefaultJobChainDecider(
                 result.chainsDone >= result.shards -> listOf(NextJobRequest(jobName = "assign-cars", skipIfActive = "assign-cars"))
                 else -> emptyList()
             }
+            // 업로드 체인 시작. 사이트 부하 때문에 유저 한 명씩 순서대로 돈다
+            is AssignCarsResult -> syncUploadRequest(result.uploadUserIds.firstOrNull(), skipIfActive = "sync-upload-")
             else -> emptyList()
         }
     }
+
+    private fun syncUploadRequest(userId: String?, skipIfActive: String? = null) =
+        userId?.let {
+            listOf(NextJobRequest(jobName = "sync-upload", parameters = mapOf("user" to it), skipIfActive = skipIfActive))
+        } ?: emptyList()
 
     private fun detailRequest(shard: Int, shards: Int, hop: Int, idle: Int) =
         NextJobRequest(

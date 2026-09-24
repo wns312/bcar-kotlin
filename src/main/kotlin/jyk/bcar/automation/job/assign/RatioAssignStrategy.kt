@@ -29,6 +29,15 @@ class RatioAssignStrategy(
 
     override fun plan(users: List<TargetAdminUser>, cars: List<Car>): AssignPlan {
         val active = cars.filter { it.isActive }
+        // 시트에서 빠진 유저의 차량은 어느 유저 몫도 아니라 아무도 건드리지 않는다. 해제해서 풀로 돌려보낸다
+        // ponytail: UPLOADED였던 차는 NEEDS_REMOVAL로 표시만 된다 — 내리려면 그 계정 세션이 필요하니 시트에 다시 올라와야 내려간다
+        val knownUserIds = users.mapTo(HashSet()) { it.id }
+        val orphans = active.filter {
+            it.assignedUserId != null &&
+                it.assignedUserId !in knownUserIds &&
+                it.uploadStatus != UploadStatus.UPLOADING &&
+                it.uploadStatus != UploadStatus.NEEDS_REMOVAL
+        }
         val heldByUser = active
             .filter { it.assignedUserId != null && it.uploadStatus != UploadStatus.NEEDS_REMOVAL }
             .groupBy { it.assignedUserId!! }
@@ -80,8 +89,9 @@ class RatioAssignStrategy(
             releasable.getValue(user).take(over.coerceAtLeast(0))
         }
 
+        val released = release.values.flatten() + orphans
         val pool = categories.associateWith { category ->
-            val backToPool = release.values.flatten().filter { it.uploadStatus != UploadStatus.UPLOADED && CarCategory.of(it) == category }
+            val backToPool = released.filter { it.uploadStatus != UploadStatus.UPLOADED && CarCategory.of(it) == category }
             (unassigned[category].orEmpty() + backToPool).sortedWith(cheapest)
         }
         val room = users
@@ -108,7 +118,7 @@ class RatioAssignStrategy(
         }
         // 해제 즉시 다른 유저에게 간 차는 할당본 하나로만 저장돼야 한다 (같은 키 두 버전이면 뒤에 쓴 쪽이 이긴다)
         val reassigned = assign.values.flatten().mapTo(HashSet()) { it.carNumber }
-        return AssignPlan(assign, release.values.flatten().filterNot { it.carNumber in reassigned }, shortfall = room.values.sum())
+        return AssignPlan(assign, released.filterNot { it.carNumber in reassigned }, shortfall = room.values.sum())
     }
 
     /** total을 weight 비례로 정수 분배(최대 잔여). weight 합 0이면 전부 0 */

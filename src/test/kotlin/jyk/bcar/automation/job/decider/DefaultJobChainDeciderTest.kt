@@ -1,7 +1,9 @@
 package jyk.bcar.automation.job.decider
 
+import jyk.bcar.automation.job.result.AssignCarsResult
 import jyk.bcar.automation.job.result.CollectDetailResult
 import jyk.bcar.automation.job.result.CollectDraftResult
+import jyk.bcar.automation.job.result.SyncUploadResult
 import jyk.bcar.configuration.BatchProperties
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -52,5 +54,29 @@ class DefaultJobChainDeciderTest {
         val stopped = CollectDetailResult(0, 3, hop = 1, remaining = 40, stopped = true, chainEnded = true, chainsDone = 3)
 
         assertTrue(decider.decide("collect-detail", stopped).isEmpty())
+    }
+
+    @Test
+    fun assignStartsUploadChainWithTheFirstUser() {
+        val next = decider.decide("assign-cars", AssignCarsResult(assigned = 10, uploadUserIds = listOf("u1", "u2")))
+
+        assertEquals("sync-upload", next.single().jobName)
+        assertEquals(mapOf("user" to "u1"), next.single().parameters)
+        assertEquals("sync-upload-", next.single().skipIfActive)
+    }
+
+    @Test
+    fun uploadChainWalksUsersOneAtATimeThenStops() {
+        val next = decider.decide("sync-upload", SyncUploadResult(userId = "u1", nextUserId = "u2"))
+
+        assertEquals(mapOf("user" to "u2"), next.single().parameters)
+        // 체인 중간 제출은 자기 자신이 아직 돌고 있으므로 skipIfActive를 걸지 않는다
+        assertEquals(null, next.single().skipIfActive)
+        assertEquals(emptyList<NextJobRequest>(), decider.decide("sync-upload", SyncUploadResult(userId = "u2")))
+
+        // 유저 하나가 실패해도 남은 유저는 돈다
+        val afterFailure = decider.decide("sync-upload", SyncUploadResult(userId = "u1", nextUserId = "u2", success = false))
+        assertEquals(mapOf("user" to "u2"), afterFailure.single().parameters)
+        assertEquals(emptyList<NextJobRequest>(), decider.decide("assign-cars", AssignCarsResult(assigned = 0)))
     }
 }

@@ -24,6 +24,24 @@ batch:
     collect-detail:
       queue: bcar-dev-detail-queue
       definition: bcar-dev-detail-job
+    sync-upload:
+      queue: bcar-dev-sync-and-upload-queue
+      definition: bcar-dev-sync-upload-job
+
+upload:
+  comment-file: classpath:upload-comment.txt
+  max-attempts: 3
+  # 가격이 max-price 이하인 첫 구간의 마진을 얹어 올린다
+  margins:
+    - max-price: 2000
+      domestic: 40
+      imported: 60
+    - max-price: 5000
+      domestic: 60
+      imported: 60
+    - max-price: 10000
+      domestic: 60
+      imported: 60
 
 assign:
   ratio:

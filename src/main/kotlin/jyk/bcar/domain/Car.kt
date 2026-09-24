@@ -34,11 +34,42 @@ data class Car(
     val uploadStatus: UploadStatus = UploadStatus.NONE,
     val uploadedAt: Instant? = null,
     val uploadError: String? = null,
+    /** 연속 업로드 실패 횟수. 한도에 닿으면 더 시도하지 않는다 */
+    val uploadAttempts: Int = 0,
     /** 대상 사이트 매물 ID */
     val externalId: String? = null,
 ) {
     fun assignTo(user: TargetAdminUser, now: Instant): Car =
         copy(assignedUserId = user.id, assignedAt = now, targetSite = user.targetSite, uploadStatus = UploadStatus.PENDING)
+
+    fun markUploaded(now: Instant): Car =
+        copy(uploadStatus = UploadStatus.UPLOADED, uploadedAt = now, uploadError = null, uploadAttempts = 0)
+
+    fun markFailed(reason: String): Car =
+        copy(uploadStatus = UploadStatus.FAILED, uploadError = reason, uploadAttempts = uploadAttempts + 1)
+
+    /**
+     * 대상 사이트를 훑은 결과를 반영한다. 사이트가 원천이라 관리자가 손으로 올리거나 내린 것도 여기서 들어온다.
+     * 바뀐 게 없으면 null.
+     */
+    fun syncedWith(onSite: Boolean, now: Instant): Car? =
+        when {
+            onSite && uploadStatus == UploadStatus.UPLOADED -> null
+            onSite -> markUploaded(now)
+            uploadStatus == UploadStatus.NEEDS_REMOVAL -> release()
+            // 실패 이력은 그대로 둔다 — PENDING으로 되돌리면 재시도 가드가 무의미해진다
+            uploadStatus == UploadStatus.FAILED || uploadStatus == UploadStatus.PENDING -> null
+            else -> copy(uploadStatus = UploadStatus.PENDING, uploadedAt = null)
+        }
+
+    /** 소스에서 사라진 차. 올라가 있으면 내려야 하고, 아직 안 올라갔으면 할당을 비워 쿼터를 돌려준다 */
+    fun deactivate(): Car =
+        when (uploadStatus) {
+            UploadStatus.UPLOADED -> copy(isActive = false, uploadStatus = UploadStatus.NEEDS_REMOVAL)
+            // 업로드 중이거나 이미 내리기로 한 차는 업로드 잡이 정리한다
+            UploadStatus.UPLOADING, UploadStatus.NEEDS_REMOVAL -> copy(isActive = false)
+            else -> release().copy(isActive = false)
+        }
 
     /** 올라가 있는 차는 내릴 때까지 할당 정보를 유지한다 */
     fun release(): Car =
@@ -62,7 +93,7 @@ data class Car(
     companion object {
         /**
          * 수집 스냅샷과 저장 상태를 비교해 실제로 바뀐 차량만 돌려준다.
-         * 스냅샷에 없는 활성 차량은 비활성화, 있는 차량은 draft 필드를 갱신하고 기존 detail·할당 상태는 유지.
+         * 스냅샷에 없는 활성 차량은 비활성화(할당은 deactivate 규칙에 따라 정리), 있는 차량은 draft 필드를 갱신하고 기존 detail·할당 상태는 유지.
          * 비활성이었다가 다시 나타난 차량은 detail을 비워 재수집 대상으로 만든다.
          */
         fun reconcile(existing: List<Car>, collected: List<Car>): List<Car> {
@@ -76,10 +107,7 @@ data class Car(
             }
             val deactivated = existingByNumber.values
                 .filter { it.isActive && it.carNumber !in collectedByNumber }
-                .map {
-                    val status = if (it.uploadStatus == UploadStatus.UPLOADED) UploadStatus.NEEDS_REMOVAL else it.uploadStatus
-                    it.copy(isActive = false, uploadStatus = status)
-                }
+                .map { it.deactivate() }
 
             return upserts + deactivated
         }

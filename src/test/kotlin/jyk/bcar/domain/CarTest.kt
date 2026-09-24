@@ -71,7 +71,7 @@ class CarTest {
     }
 
     @Test
-    fun reconcileKeepsAssignmentAndMarksUploadedForRemoval() {
+    fun reconcileMarksUploadedForRemovalAndReleasesTheRest() {
         val existing = listOf(
             car("kept", assignedUserId = "u1", uploadStatus = UploadStatus.PENDING),
             car("goneUploaded", assignedUserId = "u1", uploadStatus = UploadStatus.UPLOADED),
@@ -84,7 +84,33 @@ class CarTest {
         assertEquals("u1", changes.getValue("kept").assignedUserId)
         assertEquals(UploadStatus.PENDING, changes.getValue("kept").uploadStatus)
         assertEquals(UploadStatus.NEEDS_REMOVAL, changes.getValue("goneUploaded").uploadStatus)
-        assertEquals(UploadStatus.PENDING, changes.getValue("gonePending").uploadStatus)
+        assertEquals("u1", changes.getValue("goneUploaded").assignedUserId)
+        // 안 올라간 차는 소스에서 사라진 순간 쿼터를 돌려준다
+        assertEquals(UploadStatus.NONE, changes.getValue("gonePending").uploadStatus)
+        assertEquals(null, changes.getValue("gonePending").assignedUserId)
+    }
+
+    @Test
+    fun syncTakesSiteAsSourceOfTruth() {
+        val now = java.time.Instant.EPOCH
+
+        fun sync(status: UploadStatus, onSite: Boolean) =
+            car("x", assignedUserId = "u1", uploadStatus = status).syncedWith(onSite, now)
+
+        assertEquals(UploadStatus.UPLOADED, sync(UploadStatus.PENDING, onSite = true)?.uploadStatus)
+        assertEquals(UploadStatus.UPLOADED, sync(UploadStatus.FAILED, onSite = true)?.uploadStatus)
+        assertEquals(null, sync(UploadStatus.UPLOADED, onSite = true))
+
+        // 관리자가 손으로 내렸거나 죽은 잡이 남긴 UPLOADING 유령은 다시 올릴 대상이 된다
+        assertEquals(UploadStatus.PENDING, sync(UploadStatus.UPLOADED, onSite = false)?.uploadStatus)
+        assertEquals(UploadStatus.PENDING, sync(UploadStatus.UPLOADING, onSite = false)?.uploadStatus)
+        assertEquals(null, sync(UploadStatus.PENDING, onSite = false))
+        assertEquals(null, sync(UploadStatus.FAILED, onSite = false))
+
+        // 내리기로 한 차는 사이트에서 사라진 게 확인되면 할당을 비운다
+        val removed = sync(UploadStatus.NEEDS_REMOVAL, onSite = false)
+        assertEquals(UploadStatus.NONE, removed?.uploadStatus)
+        assertEquals(null, removed?.assignedUserId)
     }
 
     @Test
