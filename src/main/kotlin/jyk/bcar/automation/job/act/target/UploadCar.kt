@@ -166,12 +166,15 @@ class UploadCar(
         }
         // 트리에서 못 찾은 만큼은 제목으로 적어 준다. 사이트가 제조사를 앞에 붙이므로 제목의 제조사는 뗀다
         if (source.model == null || source.detailModel == null) {
-            fill(
-                "model_name",
-                source.car.title
-                    .removePrefix(source.car.company)
-                    .trim(),
-            )
+            val modelName = page.locator("""$FORM [name="model_name"]""")
+            // 고른 분류로 모델명이 정해지면 사이트가 직접입력 칸을 숨긴다. 숨은 칸에 쓰면 fill이 타임아웃한다
+            if (modelName.isVisible) {
+                modelName.fill(
+                    source.car.title
+                        .removePrefix(source.car.company)
+                        .trim(),
+                )
+            }
         }
     }
 

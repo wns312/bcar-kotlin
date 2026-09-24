@@ -39,6 +39,22 @@ class DetailExtractorTest {
     }
 
     @Test
+    fun rejectTakeoverListing() {
+        // 소스가 제목에 "리스/렌트 승계차량"이라 적어 준다. 표시가는 차값이 아니라 승계 조건이다
+        val html = detailHtml().replace(
+            "<div id=\"detail_box\">",
+            "<h2>2023 BMW i4 eDrive40 리스/렌트 승계차량, 조건은 엔카에서 확인</h2><div id=\"detail_box\">",
+        )
+        assertThrows(TakeoverListing::class.java) {
+            runTest {
+                extractor.doAct(
+                    DetailExtractorRequest(html.toByteArray(Charsets.UTF_8), CharSet.UTF_8, "http://thebestcar.kr"),
+                )
+            }
+        }
+    }
+
+    @Test
     fun throwWhenDetailBoxMissing() {
         val exception = assertThrows(IllegalArgumentException::class.java) {
             runTest {
