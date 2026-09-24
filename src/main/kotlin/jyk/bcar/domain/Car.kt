@@ -1,6 +1,7 @@
 package jyk.bcar.domain
 
 import java.time.Instant
+import java.time.LocalDate
 
 enum class UploadStatus {
     NONE,
@@ -112,6 +113,32 @@ data class Car(
             return upserts + deactivated
         }
     }
+}
+
+/** 사이트 분류에 제조사로 없고 현대 밑 모델로만 있다 — company는 "현대"로 들어온다 */
+private const val GENESIS = "제네시스"
+
+/** 리스 계약 기간. 이보다 오래된 차는 표시가가 월 납입금일 이유가 없다 */
+private const val RECENT_YEARS = 6
+
+/** 최근 연식 수입차·제네시스가 이 값 아래일 수 없다 (만원) */
+private const val LEASE_PRICE_CEILING = 500
+
+/**
+ * 소스가 리스·렌트라고 적지 않은 채 월 납입금을 `price`로 보낸 매물.
+ * 2026-09-25 상세 원문 확인: 이 부류 7건에는 "리스"·"렌트"·"승계" 표기가 아예 없어
+ * [jyk.bcar.automation.job.act.sources.detail.DetailExtractor]의 텍스트 판정으로는 걸러지지 않는다.
+ *
+ * 진짜 싼 최근 매물(쎄보C EV·다니고 같은 초소형 전기차, 캠핑트레일러)은 전부 국산이라 걸리지 않는다.
+ *
+ * ponytail: 가격 휴리스틱이라 사고 이력이 심한 최근 수입차도 같이 빠진다.
+ * 소스가 리스 여부를 주기 시작하면 텍스트 판정으로 옮기고 이걸 지운다
+ */
+fun Car.hasLeasePrice(detail: CarDetail, thisYear: Int = LocalDate.now().year): Boolean {
+    val modelYear = detail.modelYear.take(4).toIntOrNull() ?: return false
+    if (thisYear - modelYear > RECENT_YEARS) return false
+    if (price >= LEASE_PRICE_CEILING) return false
+    return CarCategory.of(this) == CarCategory.IMPORTED || GENESIS in title
 }
 
 data class CarDetail(
