@@ -6,6 +6,7 @@ import jyk.bcar.automation.job.act.target.SyncUploadedCarsRequest
 import jyk.bcar.automation.job.act.target.TargetAdminLogin
 import jyk.bcar.automation.job.act.target.UploadCar
 import jyk.bcar.automation.job.act.target.UploadCarRequest
+import jyk.bcar.automation.job.act.target.UploadQuotaExhausted
 import jyk.bcar.automation.job.result.SyncUploadResult
 import jyk.bcar.automation.playwright.PlaywrightSessionRunner
 import jyk.bcar.configuration.UploadProperties
@@ -48,11 +49,15 @@ class SyncUploadJob(
         val onSite: Int,
         val removed: Int,
         val released: Int,
-        private val uploadResult: Pair<Int, Int>,
-    ) {
-        val uploaded: Int get() = uploadResult.first
-        val failed: Int get() = uploadResult.second
-    }
+        val upload: UploadOutcome,
+    )
+
+    private data class UploadOutcome(
+        val uploaded: Int = 0,
+        val failed: Int = 0,
+        /** 계정의 무료 등록 한도가 끝났다. 남은 차량은 건드리지 않고 잡을 실패로 끝낸다 */
+        val exhausted: Boolean = false,
+    )
 
     override suspend fun execute(): SyncUploadResult = withContext(Dispatchers.IO) {
         val users = userRepository.findAllTargetAdminUsers()
@@ -116,10 +121,12 @@ class SyncUploadJob(
             onSite = outcome.onSite,
             removed = outcome.removed,
             released = outcome.released,
-            uploaded = outcome.uploaded,
-            failed = outcome.failed,
+            uploaded = outcome.upload.uploaded,
+            failed = outcome.upload.failed,
+            success = !outcome.upload.exhausted,
             message = "user=${user.id} onSite=${outcome.onSite} removed=${outcome.removed} released=${outcome.released} " +
-                "uploaded=${outcome.uploaded} failed=${outcome.failed}",
+                "uploaded=${outcome.upload.uploaded} failed=${outcome.upload.failed}" +
+                if (outcome.upload.exhausted) " — 무료 등록 한도 소진" else "",
         )
     }
 
@@ -129,16 +136,14 @@ class SyncUploadJob(
         user: TargetAdminUser,
         cars: List<Car>,
         submit: Boolean,
-    ): Pair<Int, Int> {
-        if (cars.isEmpty()) return 0 to 0
+    ): UploadOutcome {
+        if (cars.isEmpty()) return UploadOutcome()
         val tree = carRepository.findCategoryTree()
         if (tree == null) {
             logger.error("No category tree. collect-category를 먼저 돌려야 한다")
-            return 0 to cars.size
+            return UploadOutcome(failed = cars.size)
         }
         val classifier = CarClassifier(tree)
-        // 올리는 동안 assign이 건드리지 않게
-        if (submit) carRepository.saveAll(cars.map { it.copy(uploadStatus = UploadStatus.UPLOADING) })
 
         var uploaded = 0
         var failed = 0
@@ -151,6 +156,8 @@ class SyncUploadJob(
                 continue
             }
             try {
+                // 올리는 동안만 UPLOADING — 중간에 멈춰도 남은 차량이 이 상태로 묶이지 않는다
+                if (submit) carRepository.saveAll(listOf(car.copy(uploadStatus = UploadStatus.UPLOADING)))
                 UploadCar(page, webClient).doAct(
                     UploadCarRequest(
                         source = source,
@@ -165,13 +172,18 @@ class SyncUploadJob(
                 logger.info("올림 $uploaded/${cars.size}: ${car.carNumber} ${car.title}")
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: UploadQuotaExhausted) {
+                // 계정이 막힌 것이므로 남은 차량은 PENDING 그대로 두고 다음 launch를 기다린다
+                logger.error("${user.id}: ${e.message}. 남은 ${cars.size - uploaded - failed}대는 건너뛴다")
+                if (submit) carRepository.saveAll(listOf(car.copy(uploadStatus = UploadStatus.PENDING)))
+                return UploadOutcome(uploaded, failed, exhausted = true)
             } catch (e: Exception) {
                 logger.warn("업로드 실패: ${car.carNumber} ${car.title} — ${e.message}")
                 if (submit) carRepository.saveAll(listOf(car.markFailed(e.message ?: e::class.simpleName.orEmpty())))
                 failed++
             }
         }
-        return uploaded to failed
+        return UploadOutcome(uploaded, failed)
     }
 
     private fun boolArg(name: String, default: Boolean): Boolean =

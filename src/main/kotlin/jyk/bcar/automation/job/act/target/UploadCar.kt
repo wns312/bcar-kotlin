@@ -24,7 +24,9 @@ class UploadCar(
         private const val DETAIL_LIST = "$CATEGORY > dl.ct_c > dd > ul"
         private const val IMAGE_INPUT = "#file_image"
         private const val IMAGE_PREVIEW = "#post-form img.preview, #post-form .photo_view li img"
-        private const val SUBMIT = "$FORM input.submit-btn"
+
+        // 무료 등록은 "등록하기", 유료는 "결제하기" — 클래스가 달라 type으로 잡는다
+        private const val SUBMIT = """$FORM input[type="submit"]"""
         private const val REDRAW_MS = 300.0
 
         private val FUEL = mapOf(
@@ -102,8 +104,8 @@ class UploadCar(
 
         page.navigate(input.registerUrl, Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE))
         // 무료 한도를 다 쓰면 상품 선택 페이지로 튕긴다. 여기서 그냥 진행하면 건당 결제가 된다
-        check(!page.url().contains("car_product")) {
-            "무료 등록 한도 소진 — 유료 상품 결제가 필요하다 (${page.url()})"
+        if (page.url().contains("car_product")) {
+            throw UploadQuotaExhausted("무료 등록 한도 소진 (${page.url()})")
         }
         page.waitForSelector(FORM)
 
@@ -162,9 +164,14 @@ class UploadCar(
             page.locator("$DETAIL_LIST > li.cateid-${it.dataValue}").click()
             page.waitForTimeout(REDRAW_MS)
         }
-        // 트리에서 못 찾은 만큼은 제목을 그대로 적어 준다
+        // 트리에서 못 찾은 만큼은 제목으로 적어 준다. 사이트가 제조사를 앞에 붙이므로 제목의 제조사는 뗀다
         if (source.model == null || source.detailModel == null) {
-            fill("model_name", source.car.title)
+            fill(
+                "model_name",
+                source.car.title
+                    .removePrefix(source.car.company)
+                    .trim(),
+            )
         }
     }
 
@@ -225,6 +232,11 @@ class UploadCar(
 
     private fun fill(name: String, value: String) = page.locator("""$FORM [name="$name"]""").fill(value)
 }
+
+/** 이 계정은 더 못 올린다. 차량 문제가 아니라 계정 문제라 남은 차량을 시도할 이유가 없다 */
+class UploadQuotaExhausted(
+    message: String,
+) : IllegalStateException(message)
 
 data class UploadCarRequest(
     val source: UploadSource,
