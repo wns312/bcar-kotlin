@@ -5,6 +5,7 @@ import jyk.bcar.automation.job.act.sources.detail.CollectDetailPageBytes
 import jyk.bcar.automation.job.act.sources.detail.CollectDetailPageBytesRequest
 import jyk.bcar.automation.job.act.sources.detail.DetailExtractor
 import jyk.bcar.automation.job.act.sources.detail.DetailExtractorRequest
+import jyk.bcar.automation.job.act.sources.detail.TakeoverListing
 import jyk.bcar.automation.job.result.CollectDetailResult
 import jyk.bcar.configuration.BatchProperties
 import jyk.bcar.domain.Car
@@ -73,6 +74,10 @@ class CollectDetailJob(
                 updates += when (val parsed = parseDetail(car, bytes)) {
                     is ParsedDetail.Ok -> car.copy(detail = parsed.detail, detailError = null)
                     is ParsedDetail.Failed -> car.copy(isActive = false, detailError = parsed.reason)
+                    // 이미 올라가 있으면 내려야 하므로 deactivate 규칙을 태운다
+                    // ponytail: 소스 목록에 계속 있으면 reconcile이 매 launch 되살려 상세를 다시 긁는다(수십 건 수준).
+                    // 비용이 커지면 detailError를 보고 수집 대상에서 빼면 된다
+                    is ParsedDetail.Excluded -> car.deactivate().copy(detailError = parsed.reason)
                 }
             }
             carRepository.saveAll(updates)
@@ -103,6 +108,9 @@ class CollectDetailJob(
     private suspend fun parseDetail(car: Car, bytes: ByteArray): ParsedDetail =
         try {
             ParsedDetail.Ok(detailExtractor.doAct(DetailExtractorRequest(bytes, CharSet.EUC_KR, baseUri = "")))
+        } catch (e: TakeoverListing) {
+            logger.info("승계 매물 제외: ${car.carNumber} (m_no=${car.detailPageNum})")
+            ParsedDetail.Excluded(e.message.orEmpty())
         } catch (e: IllegalArgumentException) {
             unparseable(car, e)
         } catch (e: IllegalStateException) {
@@ -122,6 +130,11 @@ private sealed interface ParsedDetail {
     ) : ParsedDetail
 
     data class Failed(
+        val reason: String,
+    ) : ParsedDetail
+
+    /** 페이지는 멀쩡하지만 올리면 안 되는 차 */
+    data class Excluded(
         val reason: String,
     ) : ParsedDetail
 }

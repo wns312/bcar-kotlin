@@ -10,6 +10,9 @@ class DetailExtractor(
     private val detailDocumentParser: DetailDocumentParser = DetailDocumentParser(),
 ) : JobAct<DetailExtractorRequest, CarDetail> {
     companion object {
+        /** 소스가 "리스/렌트 승계차량"이라고 제목에 적어 준다 */
+        private val TAKEOVER = Regex("(리스|렌트).{0,4}승계")
+
         private const val DETAIL_BOX_SELECTOR = "#detail_box"
         private const val TOP_KEY_SELECTOR = "div.right div div.carContTop ul li span.tit"
         private const val TOP_VALUE_SELECTOR = "div.right div div.carContTop ul li span.txt"
@@ -36,6 +39,8 @@ class DetailExtractor(
 
     override suspend fun doAct(input: DetailExtractorRequest): CarDetail {
         val document = detailDocumentParser.doAct(input)
+        // 승계 매물은 표시가가 차값이 아니라 승계 조건이라(2023년식 BMW i4가 101만원) 그대로 올리면 허위 시세가 된다
+        if (TAKEOVER.containsMatchIn(document.text())) throw TakeoverListing()
         val detailBox = requireNotNull(document.selectFirst(DETAIL_BOX_SELECTOR)) {
             "DetailExtractor: missing #detail_box"
         }
@@ -178,6 +183,9 @@ class DetailExtractor(
         val hasMortgage: Boolean,
     )
 }
+
+/** 리스·렌트 승계 매물. 페이지가 깨진 게 아니라 우리가 다루지 않는 차다 */
+class TakeoverListing : IllegalStateException("리스·렌트 승계 매물")
 
 class DetailExtractorRequest(
     val htmlBytes: ByteArray,

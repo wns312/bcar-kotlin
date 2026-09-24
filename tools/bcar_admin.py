@@ -7,6 +7,7 @@
   uv run tools/bcar_admin.py seed-dev            # prod cars → dev 복사 (dry-run)
   uv run tools/bcar_admin.py seed-dev --apply
   uv run tools/bcar_admin.py fill-users --env dev --accounts-env ~/path/.env
+  uv run tools/bcar_admin.py site-status --env prod
   uv run tools/bcar_admin.py control --env dev --stop-detail on
 
 모든 쓰기 명령은 --apply 없이는 계획만 출력한다.
@@ -14,6 +15,7 @@
 
 import argparse
 import base64
+import datetime
 import json
 import re
 import sys
@@ -22,6 +24,12 @@ import boto3
 
 REGION = "ap-northeast-2"
 USER_SHEET = "교차로계정정보"
+SITE_SHEET = "사이트정보"
+# 기본 UA로는 대상 사이트가 429를 준다
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+)
 # 구 bcar-serverless 시트 → 앱 시트. (읽을 범위, 새 탭, 헤더)
 # Comment·Margin은 시트가 아니라 앱 리소스(upload-comment.txt, application.yaml)로 갔다
 SHEET_COPIES = [
@@ -210,6 +218,80 @@ def fill_users(args):
     print("written:", written.get("updatedRange"), written.get("updatedCells"), "cells")
 
 
+def site_status(args):
+    """시트에 있는 계정마다 대상 사이트의 무료 한도·진행 매물·포인트를 읽는다.
+
+    업로드 뒤 확인용: 진행 매물이 quota와 맞는지, 포인트가 줄지 않았는지(줄었으면 유료로 올라간 것).
+    `진행 - 사용중`은 건수에서 빠지는 유료광고 매물 수다.
+    """
+    import requests
+
+    token, sheet_id = app_sheet(args.env)
+    users = sheets_call("get", token, sheet_id, f"{USER_SHEET}!A2:D").get("values", [])
+    base_urls = dict(sheets_call("get", token, sheet_id, f"{SITE_SHEET}!A2:B").get("values", []))
+
+    for uid, password, site, quota in (row[:4] for row in users if len(row) >= 4):
+        base = base_urls[site]
+        manage = f"https://car.{base}/my/car"
+        session = requests.Session()
+        session.headers["User-Agent"] = BROWSER_UA
+        session.get(f"https://ssl.{base}/membership/login?url={manage}", timeout=30)
+        session.post(f"https://ssl.{base}/membership/login",
+                     data={"id": uid, "passwd": password}, timeout=30)
+        html = session.get(manage, timeout=30).text
+        text = re.sub(r"\s+", " ", re.sub(r"(?s)<[^>]+>", " ", re.sub(r"(?is)<script.*?</script>", " ", html)))
+
+        used = re.search(r"제외\) ([\d,]+) 건 사용중 ([\d,]+) 건", text)
+        listed = re.search(r"진행 \(([\d,]+)\) 마감 \(([\d,]+)\)", text)
+        point = re.search(r"포인트 ([\d,]+) P", text)
+        if not used:
+            print(f"{uid:<14} {site:<4} 읽기 실패 (로그인 실패 또는 페이지 변경)")
+            continue
+        free_used, free_limit = used.group(1), used.group(2)
+        progress = listed.group(1) if listed else "?"
+        paid = int(progress) - int(free_used) if listed else "?"
+        flag = "" if progress == quota else f"  ← quota {quota}와 불일치"
+        print(f"{uid:<14} {site:<4} 진행 {progress:>4} (유료 {paid}) | 무료 {free_used}/{free_limit} | "
+              f"마감 {listed.group(2) if listed else '?'} | 포인트 {point.group(1) if point else '?'}P{flag}")
+
+
+def reset_detail(args):
+    """조건에 맞는 차량의 detail을 비워 상세를 다시 긁게 한다.
+
+    상세 파서 규칙이 바뀌어도 이미 detail이 있는 차는 `collect-detail`이 건드리지 않는다
+    (대상은 `isActive && detail == null`). 새 규칙을 소급 적용하려면 여기서 비워야 한다.
+    """
+    client, name = ddb(), table(args.env)
+    min_year = datetime.date.today().year - args.years
+    hit = []
+    for it in scan(client, name):
+        if it["carNumber"]["S"].startswith("_") or "detail" not in it:
+            continue
+        if not it.get("isActive", {}).get("BOOL"):
+            continue
+        year = (it["detail"].get("M", {}).get("modelYear", {}).get("S") or "")[:4]
+        if not year.isdigit() or int(year) < min_year:
+            continue
+        if int(it["price"]["N"]) >= args.max_price:
+            continue
+        hit.append(it)
+
+    print(f"{name}: 최근 {args.years}년({min_year}년 이후) 연식 & {args.max_price}만원 미만인 활성 차량 {len(hit)}건")
+    for it in sorted(hit, key=lambda i: int(i["price"]["N"]))[:10]:
+        print(f'  {it["price"]["N"]:>5}만 {it["carNumber"]["S"]:<10} '
+              f'{it.get("uploadStatus", {}).get("S", "-"):<13} {it.get("title", {}).get("S", "")[:40]}')
+    if len(hit) > 10:
+        print(f"  … {len(hit) - 10}건 더")
+    if not args.apply:
+        return print("\ndry-run. 쓰려면 --apply")
+
+    for i, it in enumerate(hit, 1):
+        client.update_item(TableName=name, Key={"carNumber": it["carNumber"]}, UpdateExpression="REMOVE detail")
+        if i % 20 == 0:
+            print(f"  {i}/{len(hit)}")
+    print(f"완료 {len(hit)}건. 다음 collect-detail이 다시 긁고, 승계 매물이면 내려간다.")
+
+
 def control(args):
     """`_control` 아이템 조회/변경. stopDetail은 파이프라인 정지 스위치."""
     client, name = ddb(), table(args.env)
@@ -252,6 +334,17 @@ def main():
     users.add_argument("--accounts-env", required=True, help="구 bcar-serverless .env 경로")
     users.add_argument("--apply", action="store_true")
     users.set_defaults(func=fill_users)
+
+    reset = sub.add_parser("reset-detail", help="조건에 맞는 차량의 detail을 비워 재수집시킨다")
+    reset.add_argument("--env", default="dev", choices=["dev", "prod"])
+    reset.add_argument("-n", "--years", type=int, default=6, help="최근 N년 이내 연식만 (기본 6 — 리스 계약 기간)")
+    reset.add_argument("--max-price", type=int, default=500)
+    reset.add_argument("--apply", action="store_true")
+    reset.set_defaults(func=reset_detail)
+
+    status = sub.add_parser("site-status", help="시트 계정의 사이트 한도·진행 매물·포인트 조회")
+    status.add_argument("--env", default="dev", choices=["dev", "prod"])
+    status.set_defaults(func=site_status)
 
     ctl = sub.add_parser("control", help="_control 아이템 조회/변경")
     ctl.add_argument("--env", default="dev", choices=["dev", "prod"])
