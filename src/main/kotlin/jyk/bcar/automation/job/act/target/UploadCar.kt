@@ -101,6 +101,10 @@ class UploadCar(
         val detail = checkNotNull(car.detail) { "no detail for ${car.carNumber}" }
 
         page.navigate(input.registerUrl, Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE))
+        // 무료 한도를 다 쓰면 상품 선택 페이지로 튕긴다. 여기서 그냥 진행하면 건당 결제가 된다
+        check(!page.url().contains("car_product")) {
+            "무료 등록 한도 소진 — 유료 상품 결제가 필요하다 (${page.url()})"
+        }
         page.waitForSelector(FORM)
 
         radio("car_type", source.segment.dataValue)

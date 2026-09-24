@@ -9,8 +9,10 @@ data class TargetAdminUser(
 ) {
     val manageUrl: String get() = "https://car.$baseUrl/my/car"
 
-    /** products는 등록 상품 선택 단계를 건너뛴다. car-normal-60 = 기본등록 60일 */
-    val registerUrl: String get() = "https://car.$baseUrl/my/car_post/new?car_idx=&state=0&products=car-normal-60"
+    val registerUrl: String get() = "https://car.$baseUrl/my/car_post/new?car_idx=&state=0"
+
+    /** 무료 등록 한도가 남아 있으면 등록 폼으로 바로 가고, 다 썼으면 이 주소로 튕긴다 */
+    val productUrl: String get() = "https://car.$baseUrl/my/car_product/new"
 
     /** 로그인 폼은 url 파라미터로 받은 주소로 되돌려준다 */
     fun loginUrlRedirecting(to: String): String = "https://ssl.$baseUrl/membership/login?url=$to"

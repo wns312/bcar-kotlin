@@ -25,6 +25,11 @@ class CollectCategoryJob(
 
     override val name: String = "collect-category"
 
+    private companion object {
+        /** 기본등록 상품. 폼을 여는 용도로만 쓴다 — 제출하지 않으면 결제되지 않는다 */
+        const val FALLBACK_PRODUCT = "car-normal-60"
+    }
+
     override suspend fun execute(): CollectCategoryResult = withContext(Dispatchers.IO) {
         // 트리는 계정과 무관하다. 로그인만 되면 되므로 아무 유저나 쓴다
         val user = userRepository.findAllTargetAdminUsers().firstOrNull()
@@ -34,6 +39,11 @@ class CollectCategoryJob(
             session.usePage { page ->
                 TargetAdminLogin(page).doAct(user)
                 page.navigate(user.registerUrl)
+                // 한도를 다 쓴 계정이면 상품 선택 페이지로 튕긴다. 트리만 읽을 거라 유료 상품 폼을 열어도 결제되지 않는다
+                if (page.url().contains("car_product")) {
+                    logger.info("등록 한도 소진 계정 — 상품 지정으로 폼만 연다")
+                    page.navigate("${user.registerUrl}&products=$FALLBACK_PRODUCT")
+                }
                 CollectCategoryTree(page).doAct(Unit)
             }
         }
