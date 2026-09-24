@@ -102,13 +102,23 @@ class CarClassifierTest {
     }
 
     @Test
-    fun onlyLooksAtModelsOfTheChosenSegment() {
-        // 포터는 화물/버스에만 있다 — SUV/RV로 분류되면 모델 없이 제조사까지만
+    fun fallsBackToOtherSegmentsWhenSourceCategoryDisagrees() {
+        // 포터는 사이트에서 화물/버스인데 소스가 SUV로 내려보냈다. 세그먼트로 거르면 모델이 비어
+        // 등록 폼의 필수 항목을 못 채운다 — 2026-09-24 prod 업로드 실패 11건이 전부 이 모양이었다
         val source = classifier.classify(car("현대 포터II", "현대", "SUV"))!!
 
-        assertEquals("SUV/RV", source.segment.name)
-        assertNull(source.model)
-        assertEquals("포터", classifier.classify(car("현대 포터II", "현대", "화물차"))?.model?.name)
+        assertEquals("포터", source.model?.name)
+        // 폼은 세그먼트를 고르면 모델 목록을 다시 그린다 — 모델의 세그먼트로 채워야 고를 수 있다
+        assertEquals("화물/버스", source.segment.name)
+    }
+
+    @Test
+    fun prefersModelOfTheSourceSegmentWhenBothMatch() {
+        // 세그먼트가 맞는 모델이 있으면 그걸 쓴다 — 폴백이 기존 분류를 흔들지 않아야 한다
+        val source = classifier.classify(car("현대 그랜저", "현대", "대형차"))!!
+
+        assertEquals("그랜저", source.model?.name)
+        assertEquals("중대형", source.segment.name)
     }
 
     @Test
