@@ -55,6 +55,22 @@ class DetailExtractorTest {
     }
 
     @Test
+    fun keepListingWhenTakeoverWordingDiffers() = runTest {
+        // 2026-09-24 prod: "리스/렌트 승계" 표기 없이 월 납입금이 price로 들어온 매물이 6건 올라갔다.
+        // 정규식을 넓히기 전까지는 통과가 정상 동작이다 — 넓힐 때 이 테스트가 뒤집힌다
+        val html = detailHtml().replace(
+            "<div id=\"detail_box\">",
+            "<h2>2024 벤츠 마이바흐 S680 월 납입금 문의, 인수 가능</h2><div id=\"detail_box\">",
+        )
+
+        val detail = extractor.doAct(
+            DetailExtractorRequest(html.toByteArray(Charsets.UTF_8), CharSet.UTF_8, "http://thebestcar.kr"),
+        )
+
+        assertEquals("2019-03", detail.modelYear)
+    }
+
+    @Test
     fun throwWhenDetailBoxMissing() {
         val exception = assertThrows(IllegalArgumentException::class.java) {
             runTest {
