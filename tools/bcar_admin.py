@@ -15,6 +15,7 @@
 
 import argparse
 import base64
+import datetime
 import json
 import re
 import sys
@@ -254,6 +255,43 @@ def site_status(args):
               f"마감 {listed.group(2) if listed else '?'} | 포인트 {point.group(1) if point else '?'}P{flag}")
 
 
+def reset_detail(args):
+    """조건에 맞는 차량의 detail을 비워 상세를 다시 긁게 한다.
+
+    상세 파서 규칙이 바뀌어도 이미 detail이 있는 차는 `collect-detail`이 건드리지 않는다
+    (대상은 `isActive && detail == null`). 새 규칙을 소급 적용하려면 여기서 비워야 한다.
+    """
+    client, name = ddb(), table(args.env)
+    min_year = datetime.date.today().year - args.years
+    hit = []
+    for it in scan(client, name):
+        if it["carNumber"]["S"].startswith("_") or "detail" not in it:
+            continue
+        if not it.get("isActive", {}).get("BOOL"):
+            continue
+        year = (it["detail"].get("M", {}).get("modelYear", {}).get("S") or "")[:4]
+        if not year.isdigit() or int(year) < min_year:
+            continue
+        if int(it["price"]["N"]) >= args.max_price:
+            continue
+        hit.append(it)
+
+    print(f"{name}: 최근 {args.years}년({min_year}년 이후) 연식 & {args.max_price}만원 미만인 활성 차량 {len(hit)}건")
+    for it in sorted(hit, key=lambda i: int(i["price"]["N"]))[:10]:
+        print(f'  {it["price"]["N"]:>5}만 {it["carNumber"]["S"]:<10} '
+              f'{it.get("uploadStatus", {}).get("S", "-"):<13} {it.get("title", {}).get("S", "")[:40]}')
+    if len(hit) > 10:
+        print(f"  … {len(hit) - 10}건 더")
+    if not args.apply:
+        return print("\ndry-run. 쓰려면 --apply")
+
+    for i, it in enumerate(hit, 1):
+        client.update_item(TableName=name, Key={"carNumber": it["carNumber"]}, UpdateExpression="REMOVE detail")
+        if i % 20 == 0:
+            print(f"  {i}/{len(hit)}")
+    print(f"완료 {len(hit)}건. 다음 collect-detail이 다시 긁고, 승계 매물이면 내려간다.")
+
+
 def control(args):
     """`_control` 아이템 조회/변경. stopDetail은 파이프라인 정지 스위치."""
     client, name = ddb(), table(args.env)
@@ -296,6 +334,13 @@ def main():
     users.add_argument("--accounts-env", required=True, help="구 bcar-serverless .env 경로")
     users.add_argument("--apply", action="store_true")
     users.set_defaults(func=fill_users)
+
+    reset = sub.add_parser("reset-detail", help="조건에 맞는 차량의 detail을 비워 재수집시킨다")
+    reset.add_argument("--env", default="dev", choices=["dev", "prod"])
+    reset.add_argument("-n", "--years", type=int, default=6, help="최근 N년 이내 연식만 (기본 6 — 리스 계약 기간)")
+    reset.add_argument("--max-price", type=int, default=500)
+    reset.add_argument("--apply", action="store_true")
+    reset.set_defaults(func=reset_detail)
 
     status = sub.add_parser("site-status", help="시트 계정의 사이트 한도·진행 매물·포인트 조회")
     status.add_argument("--env", default="dev", choices=["dev", "prod"])
