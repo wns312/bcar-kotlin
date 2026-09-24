@@ -1,0 +1,64 @@
+# 로컬 CLI 없이 운영 작업을 돌리기 위한 수동 트리거. 쓰기는 사람이 누른 실행에서만 일어난다.
+name: Admin
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [dev, prod]
+        default: prod
+      reset_detail:
+        description: "조건에 맞는 차량의 detail을 비운다 (reset-detail --apply)"
+        type: boolean
+        default: false
+      submit_detail_jobs:
+        description: "collect-detail을 체인 없이 제출한다 (--next=false)"
+        type: boolean
+        default: false
+      detail_shards:
+        description: "collect-detail shard 수. 상세는 IP당 ~15건에서 막히므로 대상÷shards가 15 미만이어야 한다"
+        required: true
+        default: "2"
+
+jobs:
+  admin:
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # 무엇을 지우는지 로그에 먼저 남긴다 — 쓰기 뒤에는 대상을 되짚을 수 없다
+      - name: reset-detail (dry-run)
+        if: inputs.reset_detail
+        run: uv run tools/bcar_admin.py reset-detail --env ${{ inputs.environment }}
+
+      - name: reset-detail (apply)
+        if: inputs.reset_detail
+        run: uv run tools/bcar_admin.py reset-detail --env ${{ inputs.environment }} --apply
+
+      # collect-detail은 전용 큐를 쓴다 (application-<env>.yaml의 batch.jobs.collect-detail)
+      - name: submit collect-detail
+        if: inputs.submit_detail_jobs
+        run: |
+          for s in $(seq 0 $(( ${{ inputs.detail_shards }} - 1 ))); do
+            aws batch submit-job \
+              --job-name "collect-detail-admin-shard$s" \
+              --job-queue bcar-${{ inputs.environment }}-detail-queue \
+              --job-definition bcar-${{ inputs.environment }}-detail-job \
+              --container-overrides "command=[\"--job=collect-detail\",\"--next=false\",\"--shards=${{ inputs.detail_shards }}\",\"--shard=$s\"]" \
+              --query 'jobId' --output text
+          done
+
+      - name: site-status
+        run: uv run tools/bcar_admin.py site-status --env ${{ inputs.environment }}
