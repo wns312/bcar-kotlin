@@ -66,9 +66,11 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 
 상세 페이지는 IP당 ~15건에서 차단되므로 잡 하나는 IP 하나 분량만 처리하고, 남은 차량이 있으면 같은 shard의 후속 잡을 제출한다 (`--next=true`일 때).
 
-### `sync-upload` 전용: `--user`, `--delete`
+### `sync-upload` 전용: `--user`, `--delete`, `--submit`, `--limit`
 - `--user=<id>`: 이 잡이 맡을 유저. 시트 `교차로계정정보`에 없는 id면 예외 — 시트에 없는 유저를 동기화하면 그 계정 매물을 통째로 지우게 된다
-- `--delete=false`: 사이트 목록을 훑기만 하고 지우지 않는다 (기본 `true`). 로그인·페이지 순회·행 파싱만 확인할 때 쓴다
+- `--delete=false`: 사이트 목록을 훑기만 하고 지우지 않는다 (기본 `true`)
+- `--submit=false`: 등록 폼을 채우고 **결제 직전에 멈춘다**. 폼 전체를 `$TMPDIR/upload-<차량번호>.png`로 캡처하고 DB 상태도 건드리지 않는다 (기본 `true`)
+- `--limit=N`: 이번 실행에서 올릴 최대 대수 (기본 무제한)
 
 ### 파이프라인
 
@@ -111,7 +113,11 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 1. 로그인 → 관리 페이지를 **뒷 페이지부터** 순회(삭제 때문에 앞 페이지가 밀리지 않게)
 2. 각 행의 차량번호가 이 유저 할당분(`NEEDS_REMOVAL` 제외)에 없으면 체크해서 일괄 삭제 — `NEEDS_REMOVAL` 내리기가 여기서 같이 처리된다
 3. 결과를 `Car.syncedWith`로 반영: 사이트에 있으면 `UPLOADED`, 없으면 다시 올릴 대상(`PENDING`). `FAILED`는 그대로 두고(재시도 가드), `NEEDS_REMOVAL`은 `Car.release()`로 할당을 비운다
-4. 업로드 패스(`PENDING`/`FAILED` 등록)는 아직 미구현
+4. `PENDING`/`FAILED` 차량을 `upload.max-attempts`(기본 3) 전까지 한 대씩 등록한다. 올리기 전에 `UPLOADING`으로 찍어 assign이 목록을 흔들지 못하게 하고, 결과에 따라 `UPLOADED`/`FAILED`(+`uploadAttempts`)로 저장한다
+
+등록 폼은 `CarClassifier`가 `_categories` 트리에서 찾은 세그먼트·제조사·모델·세부모델로 채운다. 못 찾은 만큼은 모델명 칸에 제목을 그대로 적는다. 가격은 `upload.margins`의 마진을 얹고, 설명은 `upload-comment.txt`, 사진은 소스에서 받아 base64로 폼에 꽂는다(사이트 상한 16장).
+
+**매물 등록은 유료다** — 기본등록 상품이 30일 30,000원이고 계정 포인트로 결제된다. 폼 하단 `포인트사용`을 체크한 뒤 `결제하기`를 눌러야 실제로 올라간다.
 
 ## 4) `collect-draft` 실행 예시
 

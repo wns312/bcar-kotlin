@@ -1,5 +1,6 @@
 package jyk.bcar.repository
 
+import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import jyk.bcar.configuration.DynamoDbProperties
 import jyk.bcar.domain.Car
@@ -49,7 +50,10 @@ class DynamoDbCarRepository(
     }
 
     private val logger = LoggerFactory.getLogger(this::class.java)
+
+    // 저장해 둔 트리에 모르는 필드가 생겨도 읽기는 계속돼야 한다
     private val objectMapper = jacksonObjectMapper()
+        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
 
     override suspend fun findAll(segment: Int, totalSegments: Int): List<Car> = withContext(Dispatchers.IO) {
         require(segment in 0 until totalSegments) { "segment=$segment out of range for totalSegments=$totalSegments" }
@@ -166,6 +170,7 @@ internal fun carToItem(car: Car): Map<String, AttributeValue> = buildMap {
     put("uploadStatus", s(car.uploadStatus.name))
     car.uploadedAt?.let { put("uploadedAt", s(it.toString())) }
     car.uploadError?.let { put("uploadError", s(it)) }
+    if (car.uploadAttempts > 0) put("uploadAttempts", n(car.uploadAttempts))
     car.externalId?.let { put("externalId", s(it)) }
 }
 
@@ -188,6 +193,7 @@ internal fun itemToCar(item: Map<String, AttributeValue>): Car =
         uploadStatus = item["uploadStatus"]?.s()?.let(UploadStatus::valueOf) ?: UploadStatus.NONE,
         uploadedAt = item["uploadedAt"]?.s()?.let(Instant::parse),
         uploadError = item["uploadError"]?.s(),
+        uploadAttempts = item["uploadAttempts"]?.n()?.toInt() ?: 0,
         externalId = item["externalId"]?.s(),
     )
 

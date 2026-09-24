@@ -1,10 +1,18 @@
 package jyk.bcar.automation.job
 
+import com.microsoft.playwright.Page
 import jyk.bcar.automation.job.act.target.SyncUploadedCars
 import jyk.bcar.automation.job.act.target.SyncUploadedCarsRequest
 import jyk.bcar.automation.job.act.target.TargetAdminLogin
+import jyk.bcar.automation.job.act.target.UploadCar
+import jyk.bcar.automation.job.act.target.UploadCarRequest
 import jyk.bcar.automation.job.result.SyncUploadResult
 import jyk.bcar.automation.playwright.PlaywrightSessionRunner
+import jyk.bcar.configuration.UploadProperties
+import jyk.bcar.domain.Car
+import jyk.bcar.domain.CarCategory
+import jyk.bcar.domain.CarClassifier
+import jyk.bcar.domain.TargetAdminUser
 import jyk.bcar.domain.UploadStatus
 import jyk.bcar.repository.CarRepository
 import jyk.bcar.repository.UserRepository
@@ -14,6 +22,7 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
 import org.springframework.stereotype.Component
+import org.springframework.web.reactive.function.client.WebClient
 import java.time.Instant
 
 /**
@@ -25,11 +34,25 @@ class SyncUploadJob(
     private val runner: PlaywrightSessionRunner,
     private val userRepository: UserRepository,
     private val carRepository: CarRepository,
+    private val uploadProperties: UploadProperties,
+    private val webClient: WebClient,
     private val args: ApplicationArguments,
 ) : AutomationJob<SyncUploadResult> {
     private val logger = LoggerFactory.getLogger(this::class.java)
 
+    private val uploadable = setOf(UploadStatus.PENDING, UploadStatus.FAILED)
+
     override val name: String = "sync-upload"
+
+    private data class Outcome(
+        val onSite: Int,
+        val removed: Int,
+        val released: Int,
+        private val uploadResult: Pair<Int, Int>,
+    ) {
+        val uploaded: Int get() = uploadResult.first
+        val failed: Int get() = uploadResult.second
+    }
 
     override suspend fun execute(): SyncUploadResult = withContext(Dispatchers.IO) {
         val users = userRepository.findAllTargetAdminUsers()
@@ -47,17 +70,31 @@ class SyncUploadJob(
             "Syncing ${user.id} (${user.targetSite}): 할당 ${cars.size}대, 사이트에 있어야 할 ${expected.size}대, delete=$delete",
         )
 
-        val synced = try {
+        val submit = boolArg("submit", default = true)
+        val limit = args.getOptionValues("limit")?.firstOrNull()?.toInt() ?: Int.MAX_VALUE
+        val now = Instant.now()
+
+        val outcome = try {
             runner.withSession { session ->
                 session.usePage { page ->
                     TargetAdminLogin(page).doAct(user)
-                    SyncUploadedCars(page).doAct(
+                    val synced = SyncUploadedCars(page).doAct(
                         SyncUploadedCarsRequest(
                             manageUrl = user.manageUrl,
                             expected = expected.mapTo(HashSet()) { it.carNumber },
                             delete = delete,
                         ),
                     )
+                    val updates = cars.mapNotNull { it.syncedWith(onSite = it.carNumber in synced.found, now = now) }
+                    carRepository.saveAll(updates)
+
+                    val byNumber = updates.associateBy { it.carNumber }
+                    val pending = cars
+                        .map { byNumber[it.carNumber] ?: it }
+                        .filter { it.isActive && it.uploadStatus in uploadable && it.uploadAttempts < uploadProperties.maxAttempts }
+                        .take(limit)
+                    val uploaded = upload(page, user, pending, submit)
+                    Outcome(synced.found.size, synced.deleted.size, updates.count { it.assignedUserId == null }, uploaded)
                 }
             }
         } catch (e: CancellationException) {
@@ -73,20 +110,68 @@ class SyncUploadJob(
             )
         }
 
-        val now = Instant.now()
-        val updates = cars.mapNotNull { it.syncedWith(onSite = it.carNumber in synced.found, now = now) }
-        carRepository.saveAll(updates)
-
-        val released = updates.count { it.assignedUserId == null }
         SyncUploadResult(
             userId = user.id,
             nextUserId = nextUserId,
-            onSite = synced.found.size,
-            removed = synced.deleted.size,
-            released = released,
-            message = "user=${user.id} onSite=${synced.found.size} removed=${synced.deleted.size} " +
-                "released=$released changed=${updates.size}",
+            onSite = outcome.onSite,
+            removed = outcome.removed,
+            released = outcome.released,
+            uploaded = outcome.uploaded,
+            failed = outcome.failed,
+            message = "user=${user.id} onSite=${outcome.onSite} removed=${outcome.removed} released=${outcome.released} " +
+                "uploaded=${outcome.uploaded} failed=${outcome.failed}",
         )
+    }
+
+    /** 한 대씩 올리고 결과를 바로 저장한다 — 중간에 죽어도 올린 것만큼은 남는다 */
+    private suspend fun upload(
+        page: Page,
+        user: TargetAdminUser,
+        cars: List<Car>,
+        submit: Boolean,
+    ): Pair<Int, Int> {
+        if (cars.isEmpty()) return 0 to 0
+        val tree = carRepository.findCategoryTree()
+        if (tree == null) {
+            logger.error("No category tree. collect-category를 먼저 돌려야 한다")
+            return 0 to cars.size
+        }
+        val classifier = CarClassifier(tree)
+        // 올리는 동안 assign이 건드리지 않게
+        if (submit) carRepository.saveAll(cars.map { it.copy(uploadStatus = UploadStatus.UPLOADING) })
+
+        var uploaded = 0
+        var failed = 0
+        for (car in cars) {
+            val source = classifier.classify(car)
+            if (source == null) {
+                logger.warn("분류 불가: ${car.carNumber} ${car.company} ${car.title}")
+                if (submit) carRepository.saveAll(listOf(car.markFailed("분류 불가")))
+                failed++
+                continue
+            }
+            try {
+                UploadCar(page, webClient).doAct(
+                    UploadCarRequest(
+                        source = source,
+                        registerUrl = user.registerUrl,
+                        price = car.price + uploadProperties.marginFor(car.price, CarCategory.of(car)),
+                        comment = uploadProperties.comment,
+                        submit = submit,
+                    ),
+                )
+                if (submit) carRepository.saveAll(listOf(car.markUploaded(Instant.now())))
+                uploaded++
+                logger.info("올림 $uploaded/${cars.size}: ${car.carNumber} ${car.title}")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logger.warn("업로드 실패: ${car.carNumber} ${car.title} — ${e.message}")
+                if (submit) carRepository.saveAll(listOf(car.markFailed(e.message ?: e::class.simpleName.orEmpty())))
+                failed++
+            }
+        }
+        return uploaded to failed
     }
 
     private fun boolArg(name: String, default: Boolean): Boolean =

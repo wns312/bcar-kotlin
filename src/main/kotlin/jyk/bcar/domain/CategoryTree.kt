@@ -1,5 +1,7 @@
 package jyk.bcar.domain
 
+import com.fasterxml.jackson.annotation.JsonIgnore
+
 /**
  * 대상 사이트 등록 폼의 분류 트리. 폼은 이름이 아니라 data-value로 고르므로 수집해 둬야 한다.
  * 수입차는 세그먼트·제조사까지만 고르면 되고, 모델·세부모델은 국산차에만 쓴다.
@@ -41,7 +43,9 @@ data class CategoryTree(
         IMPORTED,
     }
 
+    @get:JsonIgnore
     val modelCount: Int get() = companies.sumOf { it.models.size }
 
+    @get:JsonIgnore
     val detailModelCount: Int get() = companies.sumOf { company -> company.models.sumOf { it.detailModels.size } }
 }

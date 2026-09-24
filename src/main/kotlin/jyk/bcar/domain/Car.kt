@@ -34,11 +34,19 @@ data class Car(
     val uploadStatus: UploadStatus = UploadStatus.NONE,
     val uploadedAt: Instant? = null,
     val uploadError: String? = null,
+    /** 연속 업로드 실패 횟수. 한도에 닿으면 더 시도하지 않는다 */
+    val uploadAttempts: Int = 0,
     /** 대상 사이트 매물 ID */
     val externalId: String? = null,
 ) {
     fun assignTo(user: TargetAdminUser, now: Instant): Car =
         copy(assignedUserId = user.id, assignedAt = now, targetSite = user.targetSite, uploadStatus = UploadStatus.PENDING)
+
+    fun markUploaded(now: Instant): Car =
+        copy(uploadStatus = UploadStatus.UPLOADED, uploadedAt = now, uploadError = null, uploadAttempts = 0)
+
+    fun markFailed(reason: String): Car =
+        copy(uploadStatus = UploadStatus.FAILED, uploadError = reason, uploadAttempts = uploadAttempts + 1)
 
     /**
      * 대상 사이트를 훑은 결과를 반영한다. 사이트가 원천이라 관리자가 손으로 올리거나 내린 것도 여기서 들어온다.
@@ -47,7 +55,7 @@ data class Car(
     fun syncedWith(onSite: Boolean, now: Instant): Car? =
         when {
             onSite && uploadStatus == UploadStatus.UPLOADED -> null
-            onSite -> copy(uploadStatus = UploadStatus.UPLOADED, uploadedAt = now, uploadError = null)
+            onSite -> markUploaded(now)
             uploadStatus == UploadStatus.NEEDS_REMOVAL -> release()
             // 실패 이력은 그대로 둔다 — PENDING으로 되돌리면 재시도 가드가 무의미해진다
             uploadStatus == UploadStatus.FAILED || uploadStatus == UploadStatus.PENDING -> null
