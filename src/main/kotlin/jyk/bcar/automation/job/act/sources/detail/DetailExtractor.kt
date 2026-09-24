@@ -13,13 +13,15 @@ class DetailExtractor(
     companion object {
         private val logger = LoggerFactory.getLogger(DetailExtractor::class.java)
 
-        /** 소스가 "리스/렌트 승계차량"이라고 제목에 적어 준다 */
-        private val TAKEOVER = Regex("(리스|렌트).{0,4}승계")
+        /**
+         * 소스가 리스·렌트 매물임을 적어 주는 표현. 2026-09-24 prod 원문 4종:
+         * "리스/렌트 승계차량", "신한카드 리스차량입니다", "운용리스보증금...", "신한카드 장기렌트 차량입니다".
+         * `승계`를 요구하면 뒤 셋을 놓친다. 네비게이션의 "상담리스트"는 `리스` 뒤가 `트`라 걸리지 않는다
+         */
+        private val TAKEOVER = Regex("(리스|렌트)\\s*(승계|차량)|운용\\s?리스|장기\\s?렌트")
 
-        /** TAKEOVER가 놓친 승계 매물을 소스 재요청 없이 판정하려면 원문 표현이 로그에 남아 있어야 한다 */
-        private val TAKEOVER_HINT = Regex(".{0,25}(리스|렌트|승계|인수|월\\s?납).{0,25}")
-
-        private const val TITLE_SELECTOR = "h2"
+        /** TAKEOVER가 놓친 매물을 소스 재요청 없이 판정하려면 원문 표현이 로그에 남아 있어야 한다 */
+        private val TAKEOVER_HINT = Regex(".{0,25}(리스(?!트)|렌트|승계|인수|월\\s?납).{0,25}")
 
         private const val DETAIL_BOX_SELECTOR = "#detail_box"
         private const val TOP_KEY_SELECTOR = "div.right div div.carContTop ul li span.tit"
@@ -48,21 +50,14 @@ class DetailExtractor(
     override suspend fun doAct(input: DetailExtractorRequest): CarDetail {
         val document = detailDocumentParser.doAct(input)
         val text = document.text()
-        // 승계 매물은 표시가가 차값이 아니라 승계 조건이라(2023년식 BMW i4가 101만원) 그대로 올리면 허위 시세가 된다
+        // 리스·렌트 매물은 표시가가 차값이 아니라 월 납입금이라(2024년식 마이바흐 S680이 259만원) 그대로 올리면 허위 시세가 된다
         if (TAKEOVER.containsMatchIn(text)) throw TakeoverListing()
-        logger.info(
-            "상세 통과: h2={} 단서={}",
-            document
-                .selectFirst(TITLE_SELECTOR)
-                ?.text()
-                ?.trim()
-                .orEmpty(),
-            TAKEOVER_HINT
-                .findAll(text)
-                .map { it.value.trim() }
-                .take(5)
-                .toList(),
-        )
+        val hints = TAKEOVER_HINT
+            .findAll(text)
+            .map { it.value.trim() }
+            .take(5)
+            .toList()
+        if (hints.isNotEmpty()) logger.info("상세 통과, 리스 단서 남음: {}", hints)
         val detailBox = requireNotNull(document.selectFirst(DETAIL_BOX_SELECTOR)) {
             "DetailExtractor: missing #detail_box"
         }
