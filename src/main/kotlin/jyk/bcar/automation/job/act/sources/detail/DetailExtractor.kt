@@ -5,13 +5,21 @@ import jyk.bcar.automation.job.act.sources.CharSet
 import jyk.bcar.domain.CarDetail
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
+import org.slf4j.LoggerFactory
 
 class DetailExtractor(
     private val detailDocumentParser: DetailDocumentParser = DetailDocumentParser(),
 ) : JobAct<DetailExtractorRequest, CarDetail> {
     companion object {
+        private val logger = LoggerFactory.getLogger(DetailExtractor::class.java)
+
         /** 소스가 "리스/렌트 승계차량"이라고 제목에 적어 준다 */
         private val TAKEOVER = Regex("(리스|렌트).{0,4}승계")
+
+        /** TAKEOVER가 놓친 승계 매물을 소스 재요청 없이 판정하려면 원문 표현이 로그에 남아 있어야 한다 */
+        private val TAKEOVER_HINT = Regex(".{0,25}(리스|렌트|승계|인수|월\\s?납).{0,25}")
+
+        private const val TITLE_SELECTOR = "h2"
 
         private const val DETAIL_BOX_SELECTOR = "#detail_box"
         private const val TOP_KEY_SELECTOR = "div.right div div.carContTop ul li span.tit"
@@ -39,8 +47,22 @@ class DetailExtractor(
 
     override suspend fun doAct(input: DetailExtractorRequest): CarDetail {
         val document = detailDocumentParser.doAct(input)
+        val text = document.text()
         // 승계 매물은 표시가가 차값이 아니라 승계 조건이라(2023년식 BMW i4가 101만원) 그대로 올리면 허위 시세가 된다
-        if (TAKEOVER.containsMatchIn(document.text())) throw TakeoverListing()
+        if (TAKEOVER.containsMatchIn(text)) throw TakeoverListing()
+        logger.info(
+            "상세 통과: h2={} 단서={}",
+            document
+                .selectFirst(TITLE_SELECTOR)
+                ?.text()
+                ?.trim()
+                .orEmpty(),
+            TAKEOVER_HINT
+                .findAll(text)
+                .map { it.value.trim() }
+                .take(5)
+                .toList(),
+        )
         val detailBox = requireNotNull(document.selectFirst(DETAIL_BOX_SELECTOR)) {
             "DetailExtractor: missing #detail_box"
         }
