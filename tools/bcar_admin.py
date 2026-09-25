@@ -105,8 +105,6 @@ def sheets_token(info):
 
 
 def sheets_call(method, token, sheet_id, rng, **kw):
-    import time
-
     import requests
 
     url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/{requests.utils.quote(rng, safe='')}"
@@ -134,6 +132,33 @@ def add_tabs(token, sheet_id, titles):
         f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}:batchUpdate",
         headers={"Authorization": f"Bearer {token}"},
         json={"requests": [{"addSheet": {"properties": {"title": t}}} for t in titles]},
+    )
+    res.raise_for_status()
+
+
+def sheet_props(token, sheet_id, title):
+    import requests
+
+    res = requests.get(
+        f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"fields": "sheets.properties(title,sheetId)"},
+    )
+    res.raise_for_status()
+    return next(s["properties"] for s in res.json()["sheets"] if s["properties"]["title"] == title)
+
+
+def delete_rows(token, sheet_id, tab_id, indexes):
+    import requests
+
+    # 앞 행을 지우면 뒤 인덱스가 밀린다
+    res = requests.post(
+        f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}:batchUpdate",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"requests": [
+            {"deleteDimension": {"range": {"sheetId": tab_id, "dimension": "ROWS", "startIndex": i, "endIndex": i + 1}}}
+            for i in sorted(indexes, reverse=True)
+        ]},
     )
     res.raise_for_status()
 
@@ -231,6 +256,8 @@ def site_status(args):
     업로드 뒤 확인용: 진행 매물이 quota와 맞는지, 포인트가 줄지 않았는지(줄었으면 유료로 올라간 것).
     `진행 - 사용중`은 건수에서 빠지는 유료광고 매물 수다.
     """
+    import time
+
     import requests
 
     token, sheet_id = app_sheet(args.env)
@@ -310,6 +337,48 @@ def reset_detail(args):
         if i % 20 == 0:
             print(f"  {i}/{len(hit)}")
     print(f"완료 {len(hit)}건. 다음 collect-detail이 다시 긁고, 승계 매물이면 내려간다.")
+
+
+def move_accounts(args):
+    """구 Accounts 시트의 계정을 앱 교차로계정정보로 옮긴다.
+
+    한 계정이 두 시트에 동시에 있으면 양쪽 sync가 서로의 매물을 지운다. 구 시트에서 먼저
+    빼고 앱 시트에 넣는다 — 중간 상태는 "어느 쪽도 건드리지 않음"이라 안전하다.
+    """
+    legacy_token, legacy_id = legacy_sheet(args.accounts_env)
+    rows = sheets_call("get", legacy_token, legacy_id, "Accounts!A4:E").get("values", [])
+    by_id = {r[1]: (i, r[1:5]) for i, r in enumerate(rows) if len(r) >= 5}
+
+    token, sheet_id = app_sheet(args.env)
+    existing = sheets_call("get", token, sheet_id, f"{USER_SHEET}!A2:D").get("values", [])
+    base_urls = dict(sheets_call("get", token, sheet_id, f"{SITE_SHEET}!A2:B").get("values", []))
+    have = {r[0] for r in existing if r}
+
+    if missing := [u for u in args.user if u not in by_id]:
+        sys.exit(f"구 Accounts 시트에 없다: {missing}")
+    # 앱 시트가 통째로 읽히지 않으면 assign·sync가 다 죽는다 (GoogleSheetsUserRepository의 check)
+    if unknown := [by_id[u][1][2] for u in args.user if by_id[u][1][2] not in base_urls]:
+        sys.exit(f"{SITE_SHEET}에 baseUrl이 없는 지역: {sorted(set(unknown))}")
+    if dup := [u for u in args.user if u in have]:
+        sys.exit(f"이미 {USER_SHEET}에 있다 — 두 시트에 동시에 두면 안 된다: {dup}")
+
+    plan = [by_id[u] for u in args.user]
+    print(f"구 Accounts {len(plan)}행 삭제 → {USER_SHEET} {len(existing) + 2}행부터 추가")
+    for i, row in plan:
+        print(f"  행 {i + 4:>3}  {row[0]:<13} {row[2]:<4} quota {row[3]}")
+    if not args.apply:
+        return print("\ndry-run. 쓰려면 --apply")
+
+    tab = sheet_props(legacy_token, legacy_id, "Accounts")
+    delete_rows(legacy_token, legacy_id, tab["sheetId"], [i + 3 for i, _ in plan])
+    print(f"구 Accounts에서 {len(plan)}행 삭제")
+
+    written = sheets_call(
+        "put", token, sheet_id, f"{USER_SHEET}!A{len(existing) + 2}",
+        params={"valueInputOption": "RAW"}, json={"values": [row for _, row in plan]},
+    )
+    print("written:", written.get("updatedRange"), written.get("updatedCells"), "cells")
+    print("이제 계정마다 adopt-uploads를 돌려라 — assign이 먼저 돌면 인계 대상을 뺏긴다")
 
 
 def adopt_uploads(args):
@@ -434,6 +503,13 @@ def main():
     status.add_argument("--accounts-env", help="구 bcar-serverless .env 경로. 주면 앱 시트 대신 구 Accounts 시트 계정을 본다")
     status.add_argument("--delay", type=float, default=5.0, help="계정 사이 대기 초. 너무 빠르면 사이트가 IP를 막는다")
     status.set_defaults(func=site_status)
+
+    move = sub.add_parser("move-accounts", help="구 Accounts 시트의 계정을 앱 교차로계정정보로 옮긴다")
+    move.add_argument("--env", default="dev", choices=["dev", "prod"])
+    move.add_argument("--accounts-env", required=True, help="구 bcar-serverless .env 경로")
+    move.add_argument("--user", nargs="+", required=True)
+    move.add_argument("--apply", action="store_true")
+    move.set_defaults(func=move_accounts)
 
     adopt = sub.add_parser("adopt-uploads", help="구 시스템이 그 계정으로 올린 매물을 새 DB에 인계")
     adopt.add_argument("--env", default="dev", choices=["dev", "prod"])

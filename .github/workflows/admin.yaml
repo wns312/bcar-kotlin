@@ -53,16 +53,16 @@ jobs:
 
       # 무엇을 지우는지 로그에 먼저 남긴다 — 쓰기 뒤에는 대상을 되짚을 수 없다
       - name: reset-detail (dry-run)
-        if: inputs.reset_detail
+        if: fromJSON(inputs.reset_detail)
         run: uv run tools/bcar_admin.py reset-detail --env ${{ inputs.environment }}
 
       - name: reset-detail (apply)
-        if: inputs.reset_detail
+        if: fromJSON(inputs.reset_detail)
         run: uv run tools/bcar_admin.py reset-detail --env ${{ inputs.environment }} --apply
 
       # collect-detail은 전용 큐를 쓴다 (application-<env>.yaml의 batch.jobs.collect-detail)
       - name: submit collect-detail
-        if: inputs.submit_detail_jobs
+        if: fromJSON(inputs.submit_detail_jobs)
         run: |
           for s in $(seq 0 $(( ${{ inputs.detail_shards }} - 1 ))); do
             aws batch submit-job \
