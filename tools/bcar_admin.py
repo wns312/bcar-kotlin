@@ -101,6 +101,8 @@ def sheets_token(info):
 
 
 def sheets_call(method, token, sheet_id, rng, **kw):
+    import time
+
     import requests
 
     url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/{requests.utils.quote(rng, safe='')}"
@@ -254,6 +256,10 @@ def site_status(args):
         listed = re.search(r"진행 \(([\d,]+)\) 마감 \(([\d,]+)\)", text)
         point = re.search(r"포인트 ([\d,]+) P", text)
         if not used:
+            # 계정을 쉬지 않고 훑으면 대상 사이트가 이 IP를 막는다 (2026-09-25: 무지연 43계정 중 15번째부터 429).
+            # 막힌 채로 계속 두드려봐야 차단만 깊어진다
+            if "IP 접근이 차단" in text:
+                sys.exit(f"{uid:<14} {site:<4} IP 차단(429). 잠시 뒤 --delay를 늘려 다시 돌려라")
             print(f"{uid:<14} {site:<4} 읽기 실패 (로그인 실패 또는 페이지 변경)")
             continue
         free_used, free_limit = used.group(1), used.group(2)
@@ -262,6 +268,7 @@ def site_status(args):
         flag = "" if progress == quota else f"  ← quota {quota}와 불일치"
         print(f"{uid:<14} {site:<4} 진행 {progress:>4} (유료 {paid}) | 무료 {free_used}/{free_limit} | "
               f"마감 {listed.group(2) if listed else '?'} | 포인트 {point.group(1) if point else '?'}P{flag}")
+        time.sleep(args.delay)
 
 
 def reset_detail(args):
@@ -354,6 +361,7 @@ def main():
     status = sub.add_parser("site-status", help="시트 계정의 사이트 한도·진행 매물·포인트 조회")
     status.add_argument("--env", default="dev", choices=["dev", "prod"])
     status.add_argument("--accounts-env", help="구 bcar-serverless .env 경로. 주면 앱 시트 대신 구 Accounts 시트 계정을 본다")
+    status.add_argument("--delay", type=float, default=5.0, help="계정 사이 대기 초. 너무 빠르면 사이트가 IP를 막는다")
     status.set_defaults(func=site_status)
 
     ctl = sub.add_parser("control", help="_control 아이템 조회/변경")
