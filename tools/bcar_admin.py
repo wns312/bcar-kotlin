@@ -10,12 +10,14 @@
   uv run tools/bcar_admin.py site-status --env prod
   uv run tools/bcar_admin.py site-status --env prod --accounts-env ~/path/.env   # 아직 안 옮긴 계정
   uv run tools/bcar_admin.py control --env dev --stop-detail on
+  uv run tools/bcar_admin.py adopt-uploads --env prod --user kuku01
 
 모든 쓰기 명령은 --apply 없이는 계획만 출력한다.
 """
 
 import argparse
 import base64
+import collections
 import datetime
 import json
 import re
@@ -24,6 +26,8 @@ import sys
 import boto3
 
 REGION = "ap-northeast-2"
+# 구 bcar-serverless 테이블. uploader 필드가 계정별로 사이트에 올린 차를 기억한다
+LEGACY_TABLE = "bcar-cars"
 USER_SHEET = "교차로계정정보"
 SITE_SHEET = "사이트정보"
 # 기본 UA로는 대상 사이트가 429를 준다
@@ -308,6 +312,73 @@ def reset_detail(args):
     print(f"완료 {len(hit)}건. 다음 collect-detail이 다시 긁고, 승계 매물이면 내려간다.")
 
 
+def adopt_uploads(args):
+    """구 시스템이 그 계정으로 올린 매물을 새 DB가 자기 것으로 인계하게 한다.
+
+    사이트에 올라가 있는 매물을 새 DB가 모르면 sync-upload가 전부 지운다. 계정을 옮기기 전에
+    구 테이블의 uploader 기록으로 같은 차를 그 계정에 UPLOADED로 붙여두면, 첫 sync가 대부분을
+    `found`로 확인하고 빈 자리만 새로 올린다 — 삭제도 업로드도 십여 건으로 끝난다.
+    """
+    client, name = ddb(), table(args.env)
+    uploaded = sorted(
+        it["carNumber"]["S"] for it in scan(client, LEGACY_TABLE, "carNumber,uploader")
+        if it.get("uploader", {}).get("S") == args.user
+    )
+    if not uploaded:
+        return print(f"{LEGACY_TABLE}에 uploader={args.user} 기록이 없다")
+    rows = {it["carNumber"]["S"]: it for it in scan(client, name)}
+
+    take, skip = [], collections.Counter()
+    for number in uploaded:
+        it = rows.get(number)
+        owner = (it or {}).get("assignedUserId", {}).get("S")
+        if it is None:
+            skip["새 DB에 없음(소스에서 사라짐)"] += 1
+        elif not it.get("isActive", {}).get("BOOL"):
+            skip["비활성"] += 1
+        elif owner == args.user:
+            skip["이미 인계됨"] += 1
+        elif owner:
+            skip[f"다른 계정이 가져감({owner})"] += 1
+        else:
+            take.append(it)
+
+    print(f"{args.user}: 구 업로드 {len(uploaded)}건 → 인계 가능 {len(take)}건")
+    for reason, n in skip.most_common():
+        print(f"  건너뜀 {n:>4}건  {reason}")
+    print(f"\n첫 sync-upload에서 사이트에서 지워질 매물은 약 {len(uploaded) - len(take)}건이다")
+    if not args.apply:
+        return print("\ndry-run. 쓰려면 --apply")
+
+    token, sheet_id = app_sheet(args.env)
+    users = {r[0]: r[2:4] for r in sheets_call("get", token, sheet_id, f"{USER_SHEET}!A2:D").get("values", []) if len(r) >= 4}
+    # 시트에 없는 계정에 붙이면 assign이 주인 없는 차로 보고 곧장 해제한다
+    if args.user not in users:
+        sys.exit(f"{args.user}는 {USER_SHEET} 시트에 없다. 먼저 시트로 옮기고 다시 돌려라.")
+    target_site, quota = users[args.user]
+    if len(take) > int(quota):
+        print(f"quota {quota}를 넘어 {len(take) - int(quota)}건은 남긴다")
+        take = take[:int(quota)]
+
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    for i, it in enumerate(take, 1):
+        client.update_item(
+            TableName=name,
+            Key={"carNumber": it["carNumber"]},
+            UpdateExpression=(
+                "SET assignedUserId = :u, assignedAt = :t, targetSite = :s, "
+                "uploadStatus = :st, uploadedAt = :t REMOVE uploadError, uploadAttempts"
+            ),
+            ExpressionAttributeValues={
+                ":u": {"S": args.user}, ":t": {"S": now},
+                ":s": {"S": target_site}, ":st": {"S": "UPLOADED"},
+            },
+        )
+        if i % 25 == 0:
+            print(f"  {i}/{len(take)}")
+    print(f"완료 {len(take)}건. 이제 sync-upload를 --delete=false --submit=false로 한 번 확인하고 켜라.")
+
+
 def control(args):
     """`_control` 아이템 조회/변경. stopDetail은 파이프라인 정지 스위치."""
     client, name = ddb(), table(args.env)
@@ -363,6 +434,12 @@ def main():
     status.add_argument("--accounts-env", help="구 bcar-serverless .env 경로. 주면 앱 시트 대신 구 Accounts 시트 계정을 본다")
     status.add_argument("--delay", type=float, default=5.0, help="계정 사이 대기 초. 너무 빠르면 사이트가 IP를 막는다")
     status.set_defaults(func=site_status)
+
+    adopt = sub.add_parser("adopt-uploads", help="구 시스템이 그 계정으로 올린 매물을 새 DB에 인계")
+    adopt.add_argument("--env", default="dev", choices=["dev", "prod"])
+    adopt.add_argument("--user", required=True)
+    adopt.add_argument("--apply", action="store_true")
+    adopt.set_defaults(func=adopt_uploads)
 
     ctl = sub.add_parser("control", help="_control 아이템 조회/변경")
     ctl.add_argument("--env", default="dev", choices=["dev", "prod"])
