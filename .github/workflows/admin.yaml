@@ -28,7 +28,7 @@ on:
         options: [skip, "on", "off"]
         default: skip
       adopt_uploads_user:
-        description: "구 계정이 올린 매물을 새 DB로 인계 (adopt-uploads). 계정 ID"
+        description: "구 계정이 올린 매물을 새 DB로 인계 (adopt-uploads). 계정 ID, 여러 개면 공백으로"
         required: false
         default: ""
       sync_upload_dry_run_user:

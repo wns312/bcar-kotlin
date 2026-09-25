@@ -389,63 +389,61 @@ def adopt_uploads(args):
     `found`로 확인하고 빈 자리만 새로 올린다 — 삭제도 업로드도 십여 건으로 끝난다.
     """
     client, name = ddb(), table(args.env)
-    uploaded = sorted(
-        it["carNumber"]["S"] for it in scan(client, LEGACY_TABLE, "carNumber,uploader")
-        if it.get("uploader", {}).get("S") == args.user
-    )
-    if not uploaded:
-        return print(f"{LEGACY_TABLE}에 uploader={args.user} 기록이 없다")
+    uploaded = collections.defaultdict(list)
+    for it in scan(client, LEGACY_TABLE, "carNumber,uploader"):
+        uploaded[it.get("uploader", {}).get("S")].append(it["carNumber"]["S"])
     rows = {it["carNumber"]["S"]: it for it in scan(client, name)}
 
-    take, skip = [], collections.Counter()
-    for number in uploaded:
-        it = rows.get(number)
-        owner = (it or {}).get("assignedUserId", {}).get("S")
-        if it is None:
-            skip["새 DB에 없음(소스에서 사라짐)"] += 1
-        elif not it.get("isActive", {}).get("BOOL"):
-            skip["비활성"] += 1
-        elif owner == args.user:
-            skip["이미 인계됨"] += 1
-        elif owner:
-            skip[f"다른 계정이 가져감({owner})"] += 1
-        else:
-            take.append(it)
-
-    print(f"{args.user}: 구 업로드 {len(uploaded)}건 → 인계 가능 {len(take)}건")
-    for reason, n in skip.most_common():
-        print(f"  건너뜀 {n:>4}건  {reason}")
-    print(f"\n첫 sync-upload에서 사이트에서 지워질 매물은 약 {len(uploaded) - len(take)}건이다")
+    plans = {}
+    for user in args.user:
+        numbers = sorted(uploaded.get(user, []))
+        take, skip = [], collections.Counter()
+        for number in numbers:
+            it = rows.get(number)
+            owner = (it or {}).get("assignedUserId", {}).get("S")
+            if it is None:
+                skip["새 DB에 없음(소스에서 사라짐)"] += 1
+            elif not it.get("isActive", {}).get("BOOL"):
+                skip["비활성"] += 1
+            elif owner == user:
+                skip["이미 인계됨"] += 1
+            elif owner:
+                skip[f"다른 계정이 가져감({owner})"] += 1
+            else:
+                take.append(it)
+        plans[user] = take
+        print(f"{user}: 구 업로드 {len(numbers)}건 → 인계 가능 {len(take)}건, 첫 sync에서 지워질 매물 약 {len(numbers) - len(take)}건")
+        for reason, n in skip.most_common():
+            print(f"  건너뜀 {n:>4}건  {reason}")
     if not args.apply:
         return print("\ndry-run. 쓰려면 --apply")
 
     token, sheet_id = app_sheet(args.env)
     users = {r[0]: r[2:4] for r in sheets_call("get", token, sheet_id, f"{USER_SHEET}!A2:D").get("values", []) if len(r) >= 4}
-    # 시트에 없는 계정에 붙이면 assign이 주인 없는 차로 보고 곧장 해제한다
-    if args.user not in users:
-        sys.exit(f"{args.user}는 {USER_SHEET} 시트에 없다. 먼저 시트로 옮기고 다시 돌려라.")
-    target_site, quota = users[args.user]
-    if len(take) > int(quota):
-        print(f"quota {quota}를 넘어 {len(take) - int(quota)}건은 남긴다")
-        take = take[:int(quota)]
+    # 시트에 없는 계정에 붙이면 assign이 주인 없는 차로 보고 곧장 해제한다. 하나라도 없으면 아무것도 쓰지 않는다
+    if missing := [u for u in args.user if u not in users]:
+        sys.exit(f"{USER_SHEET} 시트에 없다: {missing}. 먼저 시트로 옮기고 다시 돌려라.")
 
     now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-    for i, it in enumerate(take, 1):
-        client.update_item(
-            TableName=name,
-            Key={"carNumber": it["carNumber"]},
-            UpdateExpression=(
-                "SET assignedUserId = :u, assignedAt = :t, targetSite = :s, "
-                "uploadStatus = :st, uploadedAt = :t REMOVE uploadError, uploadAttempts"
-            ),
-            ExpressionAttributeValues={
-                ":u": {"S": args.user}, ":t": {"S": now},
-                ":s": {"S": target_site}, ":st": {"S": "UPLOADED"},
-            },
-        )
-        if i % 25 == 0:
-            print(f"  {i}/{len(take)}")
-    print(f"완료 {len(take)}건. 이제 sync-upload를 --delete=false --submit=false로 한 번 확인하고 켜라.")
+    for user, take in plans.items():
+        target_site, quota = users[user]
+        if len(take) > int(quota):
+            print(f"{user}: quota {quota}를 넘어 {len(take) - int(quota)}건은 남긴다")
+            take = take[:int(quota)]
+        for it in take:
+            client.update_item(
+                TableName=name,
+                Key={"carNumber": it["carNumber"]},
+                UpdateExpression=(
+                    "SET assignedUserId = :u, assignedAt = :t, targetSite = :s, "
+                    "uploadStatus = :st, uploadedAt = :t REMOVE uploadError, uploadAttempts"
+                ),
+                ExpressionAttributeValues={
+                    ":u": {"S": user}, ":t": {"S": now},
+                    ":s": {"S": target_site}, ":st": {"S": "UPLOADED"},
+                },
+            )
+        print(f"{user}: 완료 {len(take)}건")
 
 
 def control(args):
@@ -513,7 +511,7 @@ def main():
 
     adopt = sub.add_parser("adopt-uploads", help="구 시스템이 그 계정으로 올린 매물을 새 DB에 인계")
     adopt.add_argument("--env", default="dev", choices=["dev", "prod"])
-    adopt.add_argument("--user", required=True)
+    adopt.add_argument("--user", nargs="+", required=True)
     adopt.add_argument("--apply", action="store_true")
     adopt.set_defaults(func=adopt_uploads)
 
