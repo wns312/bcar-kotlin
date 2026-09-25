@@ -53,3 +53,5 @@ application-local.yaml
 ### Claude Code
 .claude/worktrees/
 .claude/settings.local.json
+
+__pycache__/

@@ -8,13 +8,16 @@
   uv run tools/bcar_admin.py seed-dev --apply
   uv run tools/bcar_admin.py fill-users --env dev --accounts-env ~/path/.env
   uv run tools/bcar_admin.py site-status --env prod
+  uv run tools/bcar_admin.py site-status --env prod --accounts-env ~/path/.env   # 아직 안 옮긴 계정
   uv run tools/bcar_admin.py control --env dev --stop-detail on
+  uv run tools/bcar_admin.py adopt-uploads --env prod --user kuku01
 
 모든 쓰기 명령은 --apply 없이는 계획만 출력한다.
 """
 
 import argparse
 import base64
+import collections
 import datetime
 import json
 import re
@@ -23,6 +26,8 @@ import sys
 import boto3
 
 REGION = "ap-northeast-2"
+# 구 bcar-serverless 테이블. uploader 필드가 계정별로 사이트에 올린 차를 기억한다
+LEGACY_TABLE = "bcar-cars"
 USER_SHEET = "교차로계정정보"
 SITE_SHEET = "사이트정보"
 # 기본 UA로는 대상 사이트가 429를 준다
@@ -100,6 +105,8 @@ def sheets_token(info):
 
 
 def sheets_call(method, token, sheet_id, rng, **kw):
+    import time
+
     import requests
 
     url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/{requests.utils.quote(rng, safe='')}"
@@ -219,7 +226,7 @@ def fill_users(args):
 
 
 def site_status(args):
-    """시트에 있는 계정마다 대상 사이트의 무료 한도·진행 매물·포인트를 읽는다.
+    """계정마다 대상 사이트의 무료 한도·진행 매물·포인트를 읽는다. 사이트만 읽고 아무것도 쓰지 않는다.
 
     업로드 뒤 확인용: 진행 매물이 quota와 맞는지, 포인트가 줄지 않았는지(줄었으면 유료로 올라간 것).
     `진행 - 사용중`은 건수에서 빠지는 유료광고 매물 수다.
@@ -227,10 +234,18 @@ def site_status(args):
     import requests
 
     token, sheet_id = app_sheet(args.env)
-    users = sheets_call("get", token, sheet_id, f"{USER_SHEET}!A2:D").get("values", [])
     base_urls = dict(sheets_call("get", token, sheet_id, f"{SITE_SHEET}!A2:B").get("values", []))
+    if args.accounts_env:
+        # 앱 시트로 옮기기 전에 봐야 하는 계정은 구 Accounts 시트에만 있다. ID·PW·지역·전체가 B~E열
+        legacy_token, legacy_id = legacy_sheet(args.accounts_env)
+        users = [r[1:5] for r in sheets_call("get", legacy_token, legacy_id, "Accounts!A4:E").get("values", [])]
+    else:
+        users = sheets_call("get", token, sheet_id, f"{USER_SHEET}!A2:D").get("values", [])
 
     for uid, password, site, quota in (row[:4] for row in users if len(row) >= 4):
+        if site not in base_urls:
+            print(f"{uid:<14} {site:<4} 사이트정보에 baseUrl 없음 — 건너뜀")
+            continue
         base = base_urls[site]
         manage = f"https://car.{base}/my/car"
         session = requests.Session()
@@ -245,6 +260,10 @@ def site_status(args):
         listed = re.search(r"진행 \(([\d,]+)\) 마감 \(([\d,]+)\)", text)
         point = re.search(r"포인트 ([\d,]+) P", text)
         if not used:
+            # 계정을 쉬지 않고 훑으면 대상 사이트가 이 IP를 막는다 (2026-09-25: 무지연 43계정 중 15번째부터 429).
+            # 막힌 채로 계속 두드려봐야 차단만 깊어진다
+            if "IP 접근이 차단" in text:
+                sys.exit(f"{uid:<14} {site:<4} IP 차단(429). 잠시 뒤 --delay를 늘려 다시 돌려라")
             print(f"{uid:<14} {site:<4} 읽기 실패 (로그인 실패 또는 페이지 변경)")
             continue
         free_used, free_limit = used.group(1), used.group(2)
@@ -253,6 +272,7 @@ def site_status(args):
         flag = "" if progress == quota else f"  ← quota {quota}와 불일치"
         print(f"{uid:<14} {site:<4} 진행 {progress:>4} (유료 {paid}) | 무료 {free_used}/{free_limit} | "
               f"마감 {listed.group(2) if listed else '?'} | 포인트 {point.group(1) if point else '?'}P{flag}")
+        time.sleep(args.delay)
 
 
 def reset_detail(args):
@@ -290,6 +310,73 @@ def reset_detail(args):
         if i % 20 == 0:
             print(f"  {i}/{len(hit)}")
     print(f"완료 {len(hit)}건. 다음 collect-detail이 다시 긁고, 승계 매물이면 내려간다.")
+
+
+def adopt_uploads(args):
+    """구 시스템이 그 계정으로 올린 매물을 새 DB가 자기 것으로 인계하게 한다.
+
+    사이트에 올라가 있는 매물을 새 DB가 모르면 sync-upload가 전부 지운다. 계정을 옮기기 전에
+    구 테이블의 uploader 기록으로 같은 차를 그 계정에 UPLOADED로 붙여두면, 첫 sync가 대부분을
+    `found`로 확인하고 빈 자리만 새로 올린다 — 삭제도 업로드도 십여 건으로 끝난다.
+    """
+    client, name = ddb(), table(args.env)
+    uploaded = sorted(
+        it["carNumber"]["S"] for it in scan(client, LEGACY_TABLE, "carNumber,uploader")
+        if it.get("uploader", {}).get("S") == args.user
+    )
+    if not uploaded:
+        return print(f"{LEGACY_TABLE}에 uploader={args.user} 기록이 없다")
+    rows = {it["carNumber"]["S"]: it for it in scan(client, name)}
+
+    take, skip = [], collections.Counter()
+    for number in uploaded:
+        it = rows.get(number)
+        owner = (it or {}).get("assignedUserId", {}).get("S")
+        if it is None:
+            skip["새 DB에 없음(소스에서 사라짐)"] += 1
+        elif not it.get("isActive", {}).get("BOOL"):
+            skip["비활성"] += 1
+        elif owner == args.user:
+            skip["이미 인계됨"] += 1
+        elif owner:
+            skip[f"다른 계정이 가져감({owner})"] += 1
+        else:
+            take.append(it)
+
+    print(f"{args.user}: 구 업로드 {len(uploaded)}건 → 인계 가능 {len(take)}건")
+    for reason, n in skip.most_common():
+        print(f"  건너뜀 {n:>4}건  {reason}")
+    print(f"\n첫 sync-upload에서 사이트에서 지워질 매물은 약 {len(uploaded) - len(take)}건이다")
+    if not args.apply:
+        return print("\ndry-run. 쓰려면 --apply")
+
+    token, sheet_id = app_sheet(args.env)
+    users = {r[0]: r[2:4] for r in sheets_call("get", token, sheet_id, f"{USER_SHEET}!A2:D").get("values", []) if len(r) >= 4}
+    # 시트에 없는 계정에 붙이면 assign이 주인 없는 차로 보고 곧장 해제한다
+    if args.user not in users:
+        sys.exit(f"{args.user}는 {USER_SHEET} 시트에 없다. 먼저 시트로 옮기고 다시 돌려라.")
+    target_site, quota = users[args.user]
+    if len(take) > int(quota):
+        print(f"quota {quota}를 넘어 {len(take) - int(quota)}건은 남긴다")
+        take = take[:int(quota)]
+
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    for i, it in enumerate(take, 1):
+        client.update_item(
+            TableName=name,
+            Key={"carNumber": it["carNumber"]},
+            UpdateExpression=(
+                "SET assignedUserId = :u, assignedAt = :t, targetSite = :s, "
+                "uploadStatus = :st, uploadedAt = :t REMOVE uploadError, uploadAttempts"
+            ),
+            ExpressionAttributeValues={
+                ":u": {"S": args.user}, ":t": {"S": now},
+                ":s": {"S": target_site}, ":st": {"S": "UPLOADED"},
+            },
+        )
+        if i % 25 == 0:
+            print(f"  {i}/{len(take)}")
+    print(f"완료 {len(take)}건. 이제 sync-upload를 --delete=false --submit=false로 한 번 확인하고 켜라.")
 
 
 def control(args):
@@ -344,7 +431,15 @@ def main():
 
     status = sub.add_parser("site-status", help="시트 계정의 사이트 한도·진행 매물·포인트 조회")
     status.add_argument("--env", default="dev", choices=["dev", "prod"])
+    status.add_argument("--accounts-env", help="구 bcar-serverless .env 경로. 주면 앱 시트 대신 구 Accounts 시트 계정을 본다")
+    status.add_argument("--delay", type=float, default=5.0, help="계정 사이 대기 초. 너무 빠르면 사이트가 IP를 막는다")
     status.set_defaults(func=site_status)
+
+    adopt = sub.add_parser("adopt-uploads", help="구 시스템이 그 계정으로 올린 매물을 새 DB에 인계")
+    adopt.add_argument("--env", default="dev", choices=["dev", "prod"])
+    adopt.add_argument("--user", required=True)
+    adopt.add_argument("--apply", action="store_true")
+    adopt.set_defaults(func=adopt_uploads)
 
     ctl = sub.add_parser("control", help="_control 아이템 조회/변경")
     ctl.add_argument("--env", default="dev", choices=["dev", "prod"])

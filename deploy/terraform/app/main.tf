@@ -428,8 +428,10 @@ resource "aws_batch_job_definition" "sync_upload" {
     attempts = 1
   }
 
+  # 빈 계정을 quota까지 채우는 첫 실행이 200대에 33분 걸린다(정기 라운드는 3~8분).
+  # 재시도가 없으니 타임아웃에 걸리면 그 유저는 다음 launch까지 밀린다
   timeout {
-    attempt_duration_seconds = 3600
+    attempt_duration_seconds = 7200
   }
 
   tags = local.tags
