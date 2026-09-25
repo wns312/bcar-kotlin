@@ -48,6 +48,9 @@ class CarClassifier(
             "캡처" to "캡쳐",
         )
 
+        /** 제목에만 붙는 세대 수식어. 사이트 이름에는 없거나 붙여 쓴다 */
+        private val GENERATIONS = Regex("뉴|신형")
+
         /** 사이트 세부모델명 → 매물 제목에 쓰이는 표기 */
         private val DETAIL_ALIASES = mapOf(
             "봉고III" to "봉고Ⅲ",
@@ -76,30 +79,37 @@ class CarClassifier(
         val source = UploadSource(car = car, origin = origin, segment = segment, company = company)
         if (origin == CategoryTree.Origin.IMPORTED) return source
 
-        // 제목에 든 이름 중 가장 긴 것이 정답에 가깝다 (그랜저 vs 그랜저HG)
-        val byTitle = company.models
-            .sortedByDescending { modelKey(it.name).length }
-            .filter { car.title.contains(modelKey(it.name)) }
+        // 사이트는 이름을 붙여 쓰는데("아이오닉5") 제목은 띄우고 세대 수식어까지 끼워 넣는다("제네시스 뉴 GV80")
+        val plainTitle = car.title.replace(" ", "")
+        val titles = listOf(plainTitle, plainTitle.replace(GENERATIONS, ""))
 
-        // 소스 카테고리가 사이트 세그먼트와 어긋나는 모델이 있다 — 소스는 같은 그랜드스타렉스를
-        // 화물차·특장차·RV로 제각각 내려보내지만 사이트의 스타렉스는 승합에 있다.
-        // 세그먼트로 먼저 좁히고 못 찾으면 제조사 전체에서 찾는다. 모델이 비면 폼의 필수 항목을 못 채워 멈춘다
-        val model = byTitle.firstOrNull { it.segment == segment.name }
-            ?: byTitle.firstOrNull()
-            ?: return source
+        // 제목 앞쪽에서 맞은 이름이 그 차다 — 뒤에 붙는 트림 문구에 남의 모델명이 섞여 든다("포터II 덤프 4WD"의 덤프).
+        // 같은 자리면 긴 쪽(그랜저 vs 그랜저HG), 그래도 같으면 소스 세그먼트와 맞는 쪽.
+        // 세그먼트로 거르지는 않는다 — 소스는 같은 그랜드스타렉스를 화물차·특장차·RV로 제각각 내려보내지만
+        // 사이트의 스타렉스는 승합에 있다
+        val model = company.models
+            .mapNotNull { candidate -> firstHit(titles, modelKey(candidate.name))?.let { candidate to it } }
+            .minWithOrNull(
+                compareBy({ it.second }, { -modelKey(it.first.name).length }, { it.first.segment != segment.name }),
+            )?.first
+            // 모델이 비면 폼의 필수 항목을 못 채워 멈춘다. 모델 자체가 없는 제조사(기타)는 비운 채로 올라간다
+            ?: return if (company.models.isEmpty()) source else null
 
         // 폼은 세그먼트를 고르면 모델 목록을 다시 그린다 — 어긋나 찾은 모델은 그 모델의 세그먼트로 채워야 고를 수 있다
         val modelSegment = tree.segments.firstOrNull { it.name == model.segment } ?: segment
 
-        val plainTitle = car.title.replace(" ", "")
         val detailModel = model.detailModels
             .sortedByDescending { detailKey(it.name).length }
-            .firstOrNull { plainTitle.contains(detailKey(it.name)) }
+            .firstOrNull { candidate -> titles.any { it.contains(detailKey(candidate.name)) } }
 
         return source.copy(segment = modelSegment, model = model, detailModel = detailModel)
     }
 
-    private fun modelKey(name: String) = MODEL_ALIASES[name] ?: name
+    /** 어느 표기에서든 가장 앞선 자리. 어디에도 없으면 null */
+    private fun firstHit(titles: List<String>, key: String) =
+        titles.mapNotNull { title -> title.indexOf(key).takeIf { it >= 0 } }.minOrNull()
+
+    private fun modelKey(name: String) = (MODEL_ALIASES[name] ?: name).replace(" ", "")
 
     private fun detailKey(name: String) = (DETAIL_ALIASES[name] ?: name).replace(" ", "")
 }
