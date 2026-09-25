@@ -22,6 +22,19 @@ on:
         description: "collect-detail shard 수. 상세는 IP당 ~15건에서 막히므로 대상÷shards가 15 미만이어야 한다"
         required: true
         default: "2"
+      stop_detail:
+        description: "체인 정지 스위치. 계정을 옮기는 동안 assign이 끼어들지 못하게 막는다"
+        type: choice
+        options: [skip, "on", "off"]
+        default: skip
+      adopt_uploads_user:
+        description: "구 계정이 올린 매물을 새 DB로 인계 (adopt-uploads). 계정 ID"
+        required: false
+        default: ""
+      sync_upload_dry_run_user:
+        description: "sync-upload 드라이런 (--delete=false --submit=false). 계정 ID"
+        required: false
+        default: ""
 
 jobs:
   admin:
@@ -59,6 +72,31 @@ jobs:
               --container-overrides "command=[\"--job=collect-detail\",\"--next=false\",\"--shards=${{ inputs.detail_shards }}\",\"--shard=$s\"]" \
               --query 'jobId' --output text
           done
+
+      # 계정을 옮기는 동안은 체인을 세운다 — assign이 먼저 돌면 인계 대상을 다른 계정이 가져간다
+      - name: control stop-detail
+        if: inputs.stop_detail != 'skip'
+        run: uv run tools/bcar_admin.py control --env ${{ inputs.environment }} --stop-detail ${{ inputs.stop_detail }} --apply
+
+      # 무엇을 인계하는지 먼저 남긴다. 계정이 교차로계정정보 시트에 들어간 뒤에만 유효하다
+      - name: adopt-uploads (dry-run)
+        if: inputs.adopt_uploads_user != ''
+        run: uv run tools/bcar_admin.py adopt-uploads --env ${{ inputs.environment }} --user ${{ inputs.adopt_uploads_user }}
+
+      - name: adopt-uploads (apply)
+        if: inputs.adopt_uploads_user != ''
+        run: uv run tools/bcar_admin.py adopt-uploads --env ${{ inputs.environment }} --user ${{ inputs.adopt_uploads_user }} --apply
+
+      # 새 계정 첫 동기화는 반드시 드라이런부터 — sync-upload는 사이트를 원천으로 보고 DB에 없는 매물을 지운다
+      - name: submit sync-upload (dry-run)
+        if: inputs.sync_upload_dry_run_user != ''
+        run: |
+          aws batch submit-job \
+            --job-name "sync-upload-dryrun-${{ inputs.sync_upload_dry_run_user }}" \
+            --job-queue bcar-${{ inputs.environment }}-sync-and-upload-queue \
+            --job-definition bcar-${{ inputs.environment }}-sync-upload-job \
+            --container-overrides "command=[\"--job=sync-upload\",\"--next=false\",\"--user=${{ inputs.sync_upload_dry_run_user }}\",\"--delete=false\",\"--submit=false\"]" \
+            --query 'jobId' --output text
 
       - name: site-status
         run: uv run tools/bcar_admin.py site-status --env ${{ inputs.environment }}
