@@ -458,3 +458,72 @@ resource "aws_batch_job_definition" "detail" {
 
   tags = local.tags
 }
+
+resource "aws_iam_role" "scheduler" {
+  count = var.pipeline_schedule == null ? 0 : 1
+  name  = "${local.name_prefix}-scheduler-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "scheduler.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+
+  tags = local.tags
+}
+
+resource "aws_iam_role_policy" "scheduler_submit" {
+  count = var.pipeline_schedule == null ? 0 : 1
+  name  = "${local.name_prefix}-scheduler-submit"
+  role  = aws_iam_role.scheduler[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["batch:SubmitJob"]
+        Resource = [
+          aws_batch_job_queue.main.arn,
+          aws_batch_job_definition.main.arn_prefix,
+          "${aws_batch_job_definition.main.arn_prefix}:*"
+        ]
+      }
+    ]
+  })
+}
+
+# 정의의 기본 커맨드가 collect-draft --next=true라 제출만 하면 라운드 전체가 체인으로 돈다
+resource "aws_scheduler_schedule" "pipeline" {
+  count = var.pipeline_schedule == null ? 0 : 1
+  name  = "${local.name_prefix}-pipeline"
+
+  schedule_expression          = var.pipeline_schedule
+  schedule_expression_timezone = "Asia/Seoul"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = "arn:aws:scheduler:::aws-sdk:batch:submitJob"
+    role_arn = aws_iam_role.scheduler[0].arn
+    input = jsonencode({
+      JobName       = "collect-draft"
+      JobQueue      = aws_batch_job_queue.main.arn
+      JobDefinition = aws_batch_job_definition.main.name
+    })
+
+    retry_policy {
+      maximum_event_age_in_seconds = 3600
+      maximum_retry_attempts       = 3
+    }
+  }
+}
