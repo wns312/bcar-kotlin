@@ -105,8 +105,6 @@ def sheets_token(info):
 
 
 def sheets_call(method, token, sheet_id, rng, **kw):
-    import time
-
     import requests
 
     url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/{requests.utils.quote(rng, safe='')}"
@@ -258,6 +256,8 @@ def site_status(args):
     업로드 뒤 확인용: 진행 매물이 quota와 맞는지, 포인트가 줄지 않았는지(줄었으면 유료로 올라간 것).
     `진행 - 사용중`은 건수에서 빠지는 유료광고 매물 수다.
     """
+    import time
+
     import requests
 
     token, sheet_id = app_sheet(args.env)
