@@ -38,3 +38,9 @@ variable "batch_detail_max_vcpus" {
   description = "Maximum vCPUs for the detail-collection compute environment (= max concurrent detail child jobs)."
   default     = 2
 }
+
+variable "pipeline_schedule" {
+  type        = string
+  description = "collect-draft 라운드를 여는 Scheduler cron(Asia/Seoul). null이면 스케줄을 만들지 않는다."
+  default     = null
+}
