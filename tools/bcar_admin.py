@@ -8,6 +8,7 @@
   uv run tools/bcar_admin.py seed-dev --apply
   uv run tools/bcar_admin.py fill-users --env dev --accounts-env ~/path/.env
   uv run tools/bcar_admin.py site-status --env prod
+  uv run tools/bcar_admin.py site-status --env prod --accounts-env ~/path/.env   # 아직 안 옮긴 계정
   uv run tools/bcar_admin.py control --env dev --stop-detail on
 
 모든 쓰기 명령은 --apply 없이는 계획만 출력한다.
@@ -219,7 +220,7 @@ def fill_users(args):
 
 
 def site_status(args):
-    """시트에 있는 계정마다 대상 사이트의 무료 한도·진행 매물·포인트를 읽는다.
+    """계정마다 대상 사이트의 무료 한도·진행 매물·포인트를 읽는다. 사이트만 읽고 아무것도 쓰지 않는다.
 
     업로드 뒤 확인용: 진행 매물이 quota와 맞는지, 포인트가 줄지 않았는지(줄었으면 유료로 올라간 것).
     `진행 - 사용중`은 건수에서 빠지는 유료광고 매물 수다.
@@ -227,10 +228,18 @@ def site_status(args):
     import requests
 
     token, sheet_id = app_sheet(args.env)
-    users = sheets_call("get", token, sheet_id, f"{USER_SHEET}!A2:D").get("values", [])
     base_urls = dict(sheets_call("get", token, sheet_id, f"{SITE_SHEET}!A2:B").get("values", []))
+    if args.accounts_env:
+        # 앱 시트로 옮기기 전에 봐야 하는 계정은 구 Accounts 시트에만 있다. ID·PW·지역·전체가 B~E열
+        legacy_token, legacy_id = legacy_sheet(args.accounts_env)
+        users = [r[1:5] for r in sheets_call("get", legacy_token, legacy_id, "Accounts!A4:E").get("values", [])]
+    else:
+        users = sheets_call("get", token, sheet_id, f"{USER_SHEET}!A2:D").get("values", [])
 
     for uid, password, site, quota in (row[:4] for row in users if len(row) >= 4):
+        if site not in base_urls:
+            print(f"{uid:<14} {site:<4} 사이트정보에 baseUrl 없음 — 건너뜀")
+            continue
         base = base_urls[site]
         manage = f"https://car.{base}/my/car"
         session = requests.Session()
@@ -344,6 +353,7 @@ def main():
 
     status = sub.add_parser("site-status", help="시트 계정의 사이트 한도·진행 매물·포인트 조회")
     status.add_argument("--env", default="dev", choices=["dev", "prod"])
+    status.add_argument("--accounts-env", help="구 bcar-serverless .env 경로. 주면 앱 시트 대신 구 Accounts 시트 계정을 본다")
     status.set_defaults(func=site_status)
 
     ctl = sub.add_parser("control", help="_control 아이템 조회/변경")
