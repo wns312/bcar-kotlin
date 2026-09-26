@@ -79,6 +79,28 @@ resource "aws_ecr_repository" "app" {
   tags = local.tags
 }
 
+# 푸시마다 sha 태그가 하나씩 쌓인다. latest는 항상 최신이라 이 안에 남는다
+resource "aws_ecr_lifecycle_policy" "app" {
+  repository = aws_ecr_repository.app.name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "keep last 10 images"
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 10
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
+}
+
 resource "aws_cloudwatch_log_group" "batch" {
   name              = "/aws/batch/${local.name_prefix}"
   retention_in_days = 14

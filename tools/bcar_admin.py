@@ -10,14 +10,12 @@
   uv run tools/bcar_admin.py site-status --env prod
   uv run tools/bcar_admin.py site-status --env prod --accounts-env ~/path/.env   # 아직 안 옮긴 계정
   uv run tools/bcar_admin.py control --env dev --stop-detail on
-  uv run tools/bcar_admin.py adopt-uploads --env prod --user kuku01
 
 모든 쓰기 명령은 --apply 없이는 계획만 출력한다.
 """
 
 import argparse
 import base64
-import collections
 import datetime
 import json
 import re
@@ -26,8 +24,6 @@ import sys
 import boto3
 
 REGION = "ap-northeast-2"
-# 구 bcar-serverless 테이블. uploader 필드가 계정별로 사이트에 올린 차를 기억한다
-LEGACY_TABLE = "bcar-cars"
 USER_SHEET = "교차로계정정보"
 SITE_SHEET = "사이트정보"
 # 기본 UA로는 대상 사이트가 429를 준다
@@ -378,72 +374,7 @@ def move_accounts(args):
         params={"valueInputOption": "RAW"}, json={"values": [row for _, row in plan]},
     )
     print("written:", written.get("updatedRange"), written.get("updatedCells"), "cells")
-    print("이제 계정마다 adopt-uploads를 돌려라 — assign이 먼저 돌면 인계 대상을 뺏긴다")
 
-
-def adopt_uploads(args):
-    """구 시스템이 그 계정으로 올린 매물을 새 DB가 자기 것으로 인계하게 한다.
-
-    사이트에 올라가 있는 매물을 새 DB가 모르면 sync-upload가 전부 지운다. 계정을 옮기기 전에
-    구 테이블의 uploader 기록으로 같은 차를 그 계정에 UPLOADED로 붙여두면, 첫 sync가 대부분을
-    `found`로 확인하고 빈 자리만 새로 올린다 — 삭제도 업로드도 십여 건으로 끝난다.
-    """
-    client, name = ddb(), table(args.env)
-    uploaded = collections.defaultdict(list)
-    for it in scan(client, LEGACY_TABLE, "carNumber,uploader"):
-        uploaded[it.get("uploader", {}).get("S")].append(it["carNumber"]["S"])
-    rows = {it["carNumber"]["S"]: it for it in scan(client, name)}
-
-    plans = {}
-    for user in args.user:
-        numbers = sorted(uploaded.get(user, []))
-        take, skip = [], collections.Counter()
-        for number in numbers:
-            it = rows.get(number)
-            owner = (it or {}).get("assignedUserId", {}).get("S")
-            if it is None:
-                skip["새 DB에 없음(소스에서 사라짐)"] += 1
-            elif not it.get("isActive", {}).get("BOOL"):
-                skip["비활성"] += 1
-            elif owner == user:
-                skip["이미 인계됨"] += 1
-            elif owner:
-                skip[f"다른 계정이 가져감({owner})"] += 1
-            else:
-                take.append(it)
-        plans[user] = take
-        print(f"{user}: 구 업로드 {len(numbers)}건 → 인계 가능 {len(take)}건, 첫 sync에서 지워질 매물 약 {len(numbers) - len(take)}건")
-        for reason, n in skip.most_common():
-            print(f"  건너뜀 {n:>4}건  {reason}")
-    if not args.apply:
-        return print("\ndry-run. 쓰려면 --apply")
-
-    token, sheet_id = app_sheet(args.env)
-    users = {r[0]: r[2:4] for r in sheets_call("get", token, sheet_id, f"{USER_SHEET}!A2:D").get("values", []) if len(r) >= 4}
-    # 시트에 없는 계정에 붙이면 assign이 주인 없는 차로 보고 곧장 해제한다. 하나라도 없으면 아무것도 쓰지 않는다
-    if missing := [u for u in args.user if u not in users]:
-        sys.exit(f"{USER_SHEET} 시트에 없다: {missing}. 먼저 시트로 옮기고 다시 돌려라.")
-
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-    for user, take in plans.items():
-        target_site, quota = users[user]
-        if len(take) > int(quota):
-            print(f"{user}: quota {quota}를 넘어 {len(take) - int(quota)}건은 남긴다")
-            take = take[:int(quota)]
-        for it in take:
-            client.update_item(
-                TableName=name,
-                Key={"carNumber": it["carNumber"]},
-                UpdateExpression=(
-                    "SET assignedUserId = :u, assignedAt = :t, targetSite = :s, "
-                    "uploadStatus = :st, uploadedAt = :t REMOVE uploadError, uploadAttempts"
-                ),
-                ExpressionAttributeValues={
-                    ":u": {"S": user}, ":t": {"S": now},
-                    ":s": {"S": target_site}, ":st": {"S": "UPLOADED"},
-                },
-            )
-        print(f"{user}: 완료 {len(take)}건")
 
 
 def retry_failed(args):
@@ -534,12 +465,6 @@ def main():
     move.add_argument("--user", nargs="+", required=True)
     move.add_argument("--apply", action="store_true")
     move.set_defaults(func=move_accounts)
-
-    adopt = sub.add_parser("adopt-uploads", help="구 시스템이 그 계정으로 올린 매물을 새 DB에 인계")
-    adopt.add_argument("--env", default="dev", choices=["dev", "prod"])
-    adopt.add_argument("--user", nargs="+", required=True)
-    adopt.add_argument("--apply", action="store_true")
-    adopt.set_defaults(func=adopt_uploads)
 
     retry = sub.add_parser("retry-failed", help="FAILED 차량의 재시도 가드를 풀어 다음 sync가 다시 올리게 한다")
     retry.add_argument("--env", default="dev", choices=["dev", "prod"])
