@@ -377,6 +377,32 @@ def move_accounts(args):
 
 
 
+def retry_failed(args):
+    """업로드를 포기한 FAILED 차량을 PENDING으로 되돌린다. 할당은 그대로라 다음 sync가 그 계정으로 다시 올린다.
+
+    재시도 가드(uploadAttempts)는 폼이 받아주지 않는 차가 매 실행 자리를 먹는 걸 막는다.
+    그 원인을 코드에서 고친 뒤에만 쓴다.
+    """
+    client, name = ddb(), table(args.env)
+    failed = [it for it in scan(client, name)
+              if it.get("uploadStatus", {}).get("S") == "FAILED" and it.get("isActive", {}).get("BOOL")]
+    for it in failed:
+        print(f"{it['carNumber']['S']:<10} {it.get('assignedUserId', {}).get('S', '-'):<12} "
+              f"{it.get('uploadAttempts', {}).get('N', '0')}회 {it['title']['S']} | {it.get('uploadError', {}).get('S', '')}")
+    print(f"FAILED {len(failed)}건")
+    if not args.apply:
+        return print("dry-run. 쓰려면 --apply")
+    for it in failed:
+        client.update_item(
+            TableName=name,
+            Key={"carNumber": it["carNumber"]},
+            UpdateExpression="SET uploadStatus = :p REMOVE uploadError, uploadAttempts",
+            ConditionExpression="uploadStatus = :f",
+            ExpressionAttributeValues={":p": {"S": "PENDING"}, ":f": {"S": "FAILED"}},
+        )
+    print(f"완료 {len(failed)}건")
+
+
 def control(args):
     """`_control` 아이템 조회/변경. stopDetail은 파이프라인 정지 스위치."""
     client, name = ddb(), table(args.env)
@@ -439,6 +465,11 @@ def main():
     move.add_argument("--user", nargs="+", required=True)
     move.add_argument("--apply", action="store_true")
     move.set_defaults(func=move_accounts)
+
+    retry = sub.add_parser("retry-failed", help="FAILED 차량의 재시도 가드를 풀어 다음 sync가 다시 올리게 한다")
+    retry.add_argument("--env", default="dev", choices=["dev", "prod"])
+    retry.add_argument("--apply", action="store_true")
+    retry.set_defaults(func=retry_failed)
 
     ctl = sub.add_parser("control", help="_control 아이템 조회/변경")
     ctl.add_argument("--env", default="dev", choices=["dev", "prod"])

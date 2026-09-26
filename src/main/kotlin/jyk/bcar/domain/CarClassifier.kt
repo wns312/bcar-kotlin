@@ -92,8 +92,8 @@ class CarClassifier(
             .minWithOrNull(
                 compareBy({ it.second }, { -modelKey(it.first.name).length }, { it.first.segment != segment.name }),
             )?.first
-            // 모델이 비면 폼의 필수 항목을 못 채워 멈춘다. 모델 자체가 없는 제조사(기타)는 비운 채로 올라간다
-            ?: return if (company.models.isEmpty()) source else null
+            // 트리에 없는 모델(익스프레스밴·포니II)은 비운다 — 폼이 제조사의 "기타" 모델과 직접입력으로 받는다
+            ?: return source
 
         // 폼은 세그먼트를 고르면 모델 목록을 다시 그린다 — 어긋나 찾은 모델은 그 모델의 세그먼트로 채워야 고를 수 있다
         val modelSegment = tree.segments.firstOrNull { it.name == model.segment } ?: segment

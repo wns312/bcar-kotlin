@@ -166,7 +166,15 @@ class CarClassifierTest {
         assertNull(classifier.classify(car("듣보 차", "듣보모터스", "대형차")))
         assertNull(classifier.classify(car("현대 그랜저", "현대", "알수없는분류")))
         assertNull(classifier.classify(car("현대 그랜저", "현대", "대형차").copy(detail = null)))
-        // 모델을 가진 제조사인데 고를 게 없으면 폼을 못 채운다
-        assertNull(classifier.classify(car("현대 유니버스 디젤 노블", "현대", "버스")))
+    }
+
+    @Test
+    fun leavesModelEmptyWhenTreeHasNoMatch() {
+        // 폼이 제조사의 "기타" 모델 + 직접입력으로 받는다 — 2026-09-26 prod 분류 불가 3건(익스프레스밴·포니II)
+        val source = classifier.classify(car("현대 유니버스 디젤 노블", "현대", "버스"))!!
+
+        assertEquals("현대", source.company.name)
+        assertNull(source.model)
+        assertEquals("화물/버스", source.segment.name)
     }
 }
