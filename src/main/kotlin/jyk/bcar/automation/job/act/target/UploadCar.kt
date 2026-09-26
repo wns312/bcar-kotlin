@@ -156,8 +156,11 @@ class UploadCar(
         page.locator("$COMPANY_LIST > li.cateid-${source.company.dataValue}").click()
         page.waitForTimeout(REDRAW_MS)
 
-        source.model?.let {
-            page.locator("$MODEL_LIST > li.cateid-${it.dataValue}").click()
+        val model = source.model?.let { "li.cateid-${it.dataValue}" }
+            // 모델 목록 끝의 "기타"는 트리에 없다. 고르면 직접입력 칸이 열린다
+            ?: """li:text-is("기타")""".takeIf { source.company.models.isNotEmpty() }
+        model?.let {
+            page.locator("$MODEL_LIST > $it").click()
             page.waitForTimeout(REDRAW_MS)
         }
         source.detailModel?.let {
