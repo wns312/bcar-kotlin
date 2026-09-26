@@ -31,6 +31,10 @@ on:
         description: "구 계정이 올린 매물을 새 DB로 인계 (adopt-uploads). 계정 ID, 여러 개면 공백으로"
         required: false
         default: ""
+      retry_failed:
+        description: "FAILED 차량을 PENDING으로 되돌린다 (retry-failed --apply). 실패 원인을 고친 배포 뒤에만"
+        type: boolean
+        default: false
       sync_upload_dry_run_user:
         description: "sync-upload 드라이런 (--delete=false --submit=false). 계정 ID"
         required: false
@@ -86,6 +90,14 @@ jobs:
       - name: adopt-uploads (apply)
         if: inputs.adopt_uploads_user != ''
         run: uv run tools/bcar_admin.py adopt-uploads --env ${{ inputs.environment }} --user ${{ inputs.adopt_uploads_user }} --apply
+
+      - name: retry-failed (dry-run)
+        if: fromJSON(inputs.retry_failed)
+        run: uv run tools/bcar_admin.py retry-failed --env ${{ inputs.environment }}
+
+      - name: retry-failed (apply)
+        if: fromJSON(inputs.retry_failed)
+        run: uv run tools/bcar_admin.py retry-failed --env ${{ inputs.environment }} --apply
 
       # 새 계정 첫 동기화는 반드시 드라이런부터 — sync-upload는 사이트를 원천으로 보고 DB에 없는 매물을 지운다
       - name: submit sync-upload (dry-run)
