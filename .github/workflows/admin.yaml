@@ -27,10 +27,6 @@ on:
         type: choice
         options: [skip, "on", "off"]
         default: skip
-      adopt_uploads_user:
-        description: "구 계정이 올린 매물을 새 DB로 인계 (adopt-uploads). 계정 ID, 여러 개면 공백으로"
-        required: false
-        default: ""
       retry_failed:
         description: "FAILED 차량을 PENDING으로 되돌린다 (retry-failed --apply). 실패 원인을 고친 배포 뒤에만"
         type: boolean
@@ -81,15 +77,6 @@ jobs:
       - name: control stop-detail
         if: inputs.stop_detail != 'skip'
         run: uv run tools/bcar_admin.py control --env ${{ inputs.environment }} --stop-detail ${{ inputs.stop_detail }} --apply
-
-      # 무엇을 인계하는지 먼저 남긴다. 계정이 교차로계정정보 시트에 들어간 뒤에만 유효하다
-      - name: adopt-uploads (dry-run)
-        if: inputs.adopt_uploads_user != ''
-        run: uv run tools/bcar_admin.py adopt-uploads --env ${{ inputs.environment }} --user ${{ inputs.adopt_uploads_user }}
-
-      - name: adopt-uploads (apply)
-        if: inputs.adopt_uploads_user != ''
-        run: uv run tools/bcar_admin.py adopt-uploads --env ${{ inputs.environment }} --user ${{ inputs.adopt_uploads_user }} --apply
 
       - name: retry-failed (dry-run)
         if: fromJSON(inputs.retry_failed)
