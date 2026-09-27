@@ -29,6 +29,7 @@ class SyncUploadedCars(
         openPage(input.manageUrl, 1)
 
         val found = mutableSetOf<String>()
+        val paid = mutableSetOf<String>()
         val deleted = mutableListOf<String>()
         // 매물이 한 페이지에 다 들어가면 페이지 링크가 아예 없다
         val pageCount = page.locator(PAGE_LINKS).count().coerceAtLeast(1)
@@ -43,6 +44,10 @@ class SyncUploadedCars(
                 val numberCell = row.locator(CAR_NUMBER)
                 if (numberCell.count() == 0) continue
                 val carNumber = numberCell.textContent().trim()
+                if (row.locator(CHECKBOX).getAttribute("data-payment-yn") == "y") {
+                    paid += carNumber
+                    continue
+                }
                 if (carNumber in input.expected) {
                     found += carNumber
                     continue
@@ -57,7 +62,8 @@ class SyncUploadedCars(
             deleted += checked
         }
 
-        return SyncUploadedCarsResult(found = found, deleted = deleted)
+        if (paid.isNotEmpty()) logger.info("유료 ${paid.size}대는 관리하지 않는다: $paid")
+        return SyncUploadedCarsResult(found = found, deleted = deleted, paid = paid)
     }
 
     private fun openPage(manageUrl: String, pageNumber: Int) {
@@ -89,4 +95,6 @@ data class SyncUploadedCarsRequest(
 data class SyncUploadedCarsResult(
     val found: Set<String>,
     val deleted: List<String>,
+    /** 유료 상품이 걸린 매물. found에도 deleted에도 넣지 않는다 */
+    val paid: Set<String> = emptySet(),
 )

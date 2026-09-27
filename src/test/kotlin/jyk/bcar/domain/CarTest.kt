@@ -114,6 +114,24 @@ class CarTest {
     }
 
     @Test
+    fun paidListingIsMarkedAndLeftAlone() {
+        val now = java.time.Instant.EPOCH
+        val uploaded = car("x", assignedUserId = "u1", uploadStatus = UploadStatus.UPLOADED)
+
+        val paid = uploaded.syncedWith(onSite = false, now = now, paid = true)!!
+        assertEquals(true, paid.paid)
+        assertEquals(UploadStatus.UPLOADED, paid.uploadStatus)
+        assertEquals(null, paid.syncedWith(onSite = false, now = now, paid = true))
+        // 소스에서 사라져도 내리지 않는다
+        assertEquals(null, paid.deactivate().syncedWith(onSite = false, now = now, paid = true))
+
+        // 유료 기간이 끝나 목록에서 빠지면 무료 매물로 다시 올린다
+        val expired = paid.syncedWith(onSite = false, now = now)!!
+        assertEquals(false, expired.paid)
+        assertEquals(UploadStatus.PENDING, expired.uploadStatus)
+    }
+
+    @Test
     fun releaseKeepsAssignmentOnlyWhenUploaded() {
         val uploaded = car("x", assignedUserId = "u1", uploadStatus = UploadStatus.UPLOADED).release()
         val pending = car("y", assignedUserId = "u1", uploadStatus = UploadStatus.PENDING).release()

@@ -28,7 +28,8 @@ class RatioAssignStrategy(
     private val categories = CarCategory.entries
 
     override fun plan(users: List<TargetAdminUser>, cars: List<Car>): AssignPlan {
-        val active = cars.filter { it.isActive }
+        // 유료 매물은 할당 자리로 세지도, 해제하지도 않는다
+        val active = cars.filter { it.isActive && !it.paid }
         // 시트에서 빠진 유저의 차량은 어느 유저 몫도 아니라 아무도 건드리지 않는다. 해제해서 풀로 돌려보낸다
         // ponytail: UPLOADED였던 차는 NEEDS_REMOVAL로 표시만 된다 — 내리려면 그 계정 세션이 필요하니 시트에 다시 올라와야 내려간다
         val knownUserIds = users.mapTo(HashSet()) { it.id }
