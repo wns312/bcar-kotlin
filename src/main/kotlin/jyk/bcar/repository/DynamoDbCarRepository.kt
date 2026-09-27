@@ -172,6 +172,7 @@ internal fun carToItem(car: Car): Map<String, AttributeValue> = buildMap {
     car.uploadError?.let { put("uploadError", s(it)) }
     if (car.uploadAttempts > 0) put("uploadAttempts", n(car.uploadAttempts))
     car.externalId?.let { put("externalId", s(it)) }
+    if (car.paid) put("paid", AttributeValue.fromBool(true))
 }
 
 internal fun itemToCar(item: Map<String, AttributeValue>): Car =
@@ -195,6 +196,7 @@ internal fun itemToCar(item: Map<String, AttributeValue>): Car =
         uploadError = item["uploadError"]?.s(),
         uploadAttempts = item["uploadAttempts"]?.n()?.toInt() ?: 0,
         externalId = item["externalId"]?.s(),
+        paid = item["paid"]?.bool() ?: false,
     )
 
 private fun detailToItem(detail: CarDetail): Map<String, AttributeValue> = buildMap {

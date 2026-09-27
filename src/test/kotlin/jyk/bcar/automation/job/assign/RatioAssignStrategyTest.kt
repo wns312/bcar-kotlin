@@ -199,4 +199,14 @@ class RatioAssignStrategyTest {
         assertEquals(listOf("pend"), plan.release.map { it.carNumber })
         assertEquals(1, plan.assign.getValue(a).size)
     }
+
+    @Test
+    fun paidListingsTakeNoSlotAndAreNeverReleased() {
+        val held = (1..4).map { car("paid$it", 1000 + it, assignedUserId = "a", status = UploadStatus.UPLOADED).copy(paid = true) }
+
+        val plan = strategy.plan(listOf(a), held + under(4) + over(4))
+
+        assertEquals(4, plan.assign.getValue(a).size)
+        assertEquals(emptyList<Car>(), plan.release)
+    }
 }

@@ -90,14 +90,20 @@ class SyncUploadJob(
                             delete = delete,
                         ),
                     )
-                    val updates = cars.mapNotNull { it.syncedWith(onSite = it.carNumber in synced.found, now = now) }
+                    val updates = cars.mapNotNull {
+                        it.syncedWith(onSite = it.carNumber in synced.found, now = now, paid = it.carNumber in synced.paid)
+                    }
                     carRepository.saveAll(updates)
 
                     val byNumber = updates.associateBy { it.carNumber }
                     val pending = cars
                         .map { byNumber[it.carNumber] ?: it }
-                        .filter { it.isActive && it.uploadStatus in uploadable && it.uploadAttempts < uploadProperties.maxAttempts }
-                        .take(limit)
+                        .filter {
+                            it.isActive &&
+                                !it.paid &&
+                                it.uploadStatus in uploadable &&
+                                it.uploadAttempts < uploadProperties.maxAttempts
+                        }.take(limit)
                     val uploaded = upload(page, user, pending, submit)
                     Outcome(synced.found.size, synced.deleted.size, updates.count { it.assignedUserId == null }, uploaded)
                 }

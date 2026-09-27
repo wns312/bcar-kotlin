@@ -39,6 +39,8 @@ data class Car(
     val uploadAttempts: Int = 0,
     /** 대상 사이트 매물 ID */
     val externalId: String? = null,
+    /** 대상 사이트에서 유료 상품이 걸린 매물. 관리 대상이 아니다 — 할당 자리로 세지 않고, 올리거나 내리지도 않는다 */
+    val paid: Boolean = false,
 ) {
     fun assignTo(user: TargetAdminUser, now: Instant): Car =
         copy(assignedUserId = user.id, assignedAt = now, targetSite = user.targetSite, uploadStatus = UploadStatus.PENDING)
@@ -53,8 +55,11 @@ data class Car(
      * 대상 사이트를 훑은 결과를 반영한다. 사이트가 원천이라 관리자가 손으로 올리거나 내린 것도 여기서 들어온다.
      * 바뀐 게 없으면 null.
      */
-    fun syncedWith(onSite: Boolean, now: Instant): Car? =
-        when {
+    fun syncedWith(onSite: Boolean, now: Instant, paid: Boolean = false): Car? {
+        if (paid) return if (this.paid) null else copy(paid = true)
+        // 유료 기간이 끝나 무료 매물로 돌아왔다
+        if (this.paid) return copy(paid = false).let { it.syncedWith(onSite, now) ?: it }
+        return when {
             onSite && uploadStatus == UploadStatus.UPLOADED -> null
             onSite -> markUploaded(now)
             uploadStatus == UploadStatus.NEEDS_REMOVAL -> release()
@@ -62,6 +67,7 @@ data class Car(
             uploadStatus == UploadStatus.FAILED || uploadStatus == UploadStatus.PENDING -> null
             else -> copy(uploadStatus = UploadStatus.PENDING, uploadedAt = null)
         }
+    }
 
     /** 소스에서 사라진 차. 올라가 있으면 내려야 하고, 아직 안 올라갔으면 할당을 비워 쿼터를 돌려준다 */
     fun deactivate(): Car =
