@@ -292,7 +292,8 @@ def site_status(args):
         free_used, free_limit = used.group(1), used.group(2)
         progress = listed.group(1) if listed else "?"
         paid = int(progress) - int(free_used) if listed else "?"
-        flag = "" if progress == quota else f"  ← quota {quota}와 불일치"
+        # 유료 매물은 관리 대상이 아니라 무료 건수만 quota와 맞아야 한다
+        flag = "" if free_used == quota else f"  ← 무료 {free_used}건, quota {quota}와 불일치"
         print(f"{uid:<14} {site:<4} 진행 {progress:>4} (유료 {paid}) | 무료 {free_used}/{free_limit} | "
               f"마감 {listed.group(2) if listed else '?'} | 포인트 {point.group(1) if point else '?'}P{flag}")
         time.sleep(args.delay)
