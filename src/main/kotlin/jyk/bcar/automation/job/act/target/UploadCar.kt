@@ -242,7 +242,7 @@ class UploadCar(
 /** 이 계정은 더 못 올린다. 차량 문제가 아니라 계정 문제라 남은 차량을 시도할 이유가 없다 */
 class UploadQuotaExhausted(
     message: String,
-) : IllegalStateException(message)
+) : RuntimeException(message)
 
 data class UploadCarRequest(
     val source: UploadSource,

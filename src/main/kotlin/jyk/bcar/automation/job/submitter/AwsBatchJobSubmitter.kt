@@ -58,10 +58,7 @@ class AwsBatchJobSubmitter(
         }
 
         val command = listOf("--job=${request.jobName}", "--next=true") + request.parameters.map { (k, v) -> "--$k=$v" }
-        val name = (listOf(request.jobName) + request.parameters.map { (k, v) -> "$k$v" })
-            .joinToString("-")
-            .replace(Regex("[^A-Za-z0-9_-]"), "-")
-            .take(128)
+        val name = request.batchJobName()
 
         val response = client.submitJob {
             it

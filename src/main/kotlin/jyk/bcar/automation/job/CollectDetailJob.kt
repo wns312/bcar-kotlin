@@ -12,6 +12,7 @@ import jyk.bcar.domain.Car
 import jyk.bcar.domain.CarDetail
 import jyk.bcar.domain.hasLeasePrice
 import jyk.bcar.repository.CarRepository
+import jyk.bcar.repository.PipelineControlRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -28,6 +29,7 @@ import org.springframework.web.reactive.function.client.WebClient
 @Component
 class CollectDetailJob(
     private val carRepository: CarRepository,
+    private val pipelineControl: PipelineControlRepository,
     private val args: ApplicationArguments,
     private val batchProperties: BatchProperties,
     webClient: WebClient,
@@ -39,13 +41,13 @@ class CollectDetailJob(
     override val name: String = "collect-detail"
 
     override suspend fun execute(): CollectDetailResult = withContext(Dispatchers.IO) {
-        val shards = intArg("shards") ?: 1
-        val shard = intArg("shard") ?: System.getenv("AWS_BATCH_JOB_ARRAY_INDEX")?.toInt() ?: 0
-        val hop = intArg("hop") ?: 0
-        val idle = intArg("idle") ?: 0
+        val shards = args.intOption("shards") ?: 1
+        val shard = args.intOption("shard") ?: System.getenv("AWS_BATCH_JOB_ARRAY_INDEX")?.toInt() ?: 0
+        val hop = args.intOption("hop") ?: 0
+        val idle = args.intOption("idle") ?: 0
         logger.info("Collecting detail cars. shard=$shard/$shards hop=$hop idle=$idle")
 
-        if (carRepository.isDetailCollectionStopped()) {
+        if (pipelineControl.isDetailCollectionStopped()) {
             logger.warn("Detail collection stopped by _control.stopDetail")
             return@withContext CollectDetailResult(shard, shards, hop, remaining = 0, stopped = true, message = "stopped")
         }
@@ -90,7 +92,7 @@ class CollectDetailJob(
         val remaining = cars.size - done
         val idleHops = if (done == 0) idle + 1 else 0
         val chainEnded = remaining == 0 || hop >= batchProperties.detailMaxHops || idleHops >= batchProperties.detailMaxIdleHops
-        val chainsDone = if (chainEnded) carRepository.markDetailChainDone() else 0
+        val chainsDone = if (chainEnded) pipelineControl.markDetailChainDone() else 0
         CollectDetailResult(
             shard = shard,
             shards = shards,
@@ -103,8 +105,6 @@ class CollectDetailJob(
                 "idleHops=$idleHops chainEnded=$chainEnded chainsDone=$chainsDone/$shards",
         )
     }
-
-    private fun intArg(name: String): Int? = args.getOptionValues(name)?.firstOrNull()?.toInt()
 
     private suspend fun parseDetail(car: Car, bytes: ByteArray): ParsedDetail =
         try {

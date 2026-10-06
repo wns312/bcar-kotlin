@@ -11,6 +11,7 @@ import jyk.bcar.automation.job.result.CollectDraftResult
 import jyk.bcar.automation.playwright.PlaywrightSessionRunner
 import jyk.bcar.domain.Car
 import jyk.bcar.repository.CarRepository
+import jyk.bcar.repository.PipelineControlRepository
 import jyk.bcar.repository.UserRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,6 +24,7 @@ class CollectDraftJob(
     private val runner: PlaywrightSessionRunner,
     private val userRepository: UserRepository,
     private val carRepository: CarRepository,
+    private val pipelineControl: PipelineControlRepository,
     private val webClient: WebClient,
 ) : AutomationJob<CollectDraftResult> {
     companion object {
@@ -86,7 +88,7 @@ class CollectDraftJob(
         val changes = Car.reconcile(existing = carRepository.findAll(), collected = collected)
         carRepository.saveAll(changes)
         // 이번 launch의 detail 체인 카운터. 마지막 체인이 assign을 제출하는 기준이 된다
-        carRepository.resetDetailChains()
+        pipelineControl.resetDetailChains()
         logger.info("Drafts reconciled: collected=${collected.size}, changed=${changes.size}")
 
         CollectDraftResult(message = "drafts collected")

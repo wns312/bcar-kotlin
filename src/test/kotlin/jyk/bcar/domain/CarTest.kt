@@ -141,4 +141,17 @@ class CarTest {
         assertEquals(null, pending.assignedUserId)
         assertEquals(UploadStatus.NONE, pending.uploadStatus)
     }
+
+    @Test
+    fun uploadableOnlyWhenActiveFreePendingOrFailedUnderLimit() {
+        val pending = car("x", uploadStatus = UploadStatus.PENDING)
+
+        assertEquals(true, pending.isUploadable(maxAttempts = 3))
+        assertEquals(true, pending.markFailed("e").isUploadable(maxAttempts = 3))
+        assertEquals(false, pending.markFailed("e").isUploadable(maxAttempts = 1))
+        assertEquals(false, pending.copy(paid = true).isUploadable(maxAttempts = 3))
+        assertEquals(false, pending.copy(isActive = false).isUploadable(maxAttempts = 3))
+        assertEquals(false, pending.markUploading().isUploadable(maxAttempts = 3))
+        assertEquals(false, pending.markUploaded(java.time.Instant.EPOCH).isUploadable(maxAttempts = 3))
+    }
 }
