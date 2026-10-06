@@ -38,7 +38,6 @@ dependencies {
     implementation(platform("io.awspring.cloud:spring-cloud-aws-dependencies:$springCloudAwsVersion"))
     implementation("io.awspring.cloud:spring-cloud-aws-starter-secrets-manager")
     implementation("software.amazon.awssdk:bom:$awsSdkVersion")
-    implementation("software.amazon.awssdk:netty-nio-client:$awsSdkVersion")
     implementation("software.amazon.awssdk:batch:$awsSdkVersion")
     implementation("software.amazon.awssdk:dynamodb:$awsSdkVersion")
     // Google

@@ -1,6 +1,8 @@
 package jyk.bcar.automation.job.runner
 
+import jyk.bcar.automation.job.boolOption
 import jyk.bcar.automation.job.decider.JobChainDecider
+import jyk.bcar.automation.job.option
 import jyk.bcar.automation.job.result.JobResult
 import jyk.bcar.automation.job.submitter.BatchJobSubmitter
 import kotlinx.coroutines.runBlocking
@@ -32,8 +34,7 @@ class JobRunner(
                 logger.error("Job '{}' failed: {}", jobName, result.message ?: "no message")
             }
 
-            val nextEnabled = parseNextEnabled(args.getOptionValues("next")?.firstOrNull())
-            if (nextEnabled) {
+            if (args.boolOption("next", default = true)) {
                 submitNextJob(jobName = jobName, result = result)
             } else {
                 logger.info("Next job submission disabled for '{}'.", jobName)
@@ -45,7 +46,7 @@ class JobRunner(
     }
 
     private fun findJobName(args: ApplicationArguments): String? {
-        val jobName = args.getOptionValues("job")?.firstOrNull()
+        val jobName = args.option("job")
         if (jobName.isNullOrBlank()) {
             logger.info("No --job specified. Available jobs: {}", jobRegistry.names().sorted())
             return null
@@ -54,23 +55,11 @@ class JobRunner(
         return jobName
     }
 
-    private fun parseNextEnabled(raw: String?): Boolean {
-        if (raw.isNullOrBlank()) {
-            return true
-        }
-
-        return when (raw.lowercase()) {
-            "true" -> true
-            "false" -> false
-            else -> throw IllegalArgumentException("Invalid --next value: '$raw'. Use true or false.")
-        }
-    }
-
     private suspend fun submitNextJob(
         jobName: String,
         result: JobResult,
     ) {
-        val nextRequests = jobChainDecider.decide(jobName, result)
+        val nextRequests = jobChainDecider.decide(result)
         if (nextRequests.isEmpty()) {
             logger.info("No next jobs to submit for '{}'.", jobName)
             return

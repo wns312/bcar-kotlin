@@ -16,6 +16,7 @@ import jyk.bcar.domain.CarClassifier
 import jyk.bcar.domain.TargetAdminUser
 import jyk.bcar.domain.UploadStatus
 import jyk.bcar.repository.CarRepository
+import jyk.bcar.repository.CategoryTreeRepository
 import jyk.bcar.repository.UserRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -35,13 +36,12 @@ class SyncUploadJob(
     private val runner: PlaywrightSessionRunner,
     private val userRepository: UserRepository,
     private val carRepository: CarRepository,
+    private val categoryTreeRepository: CategoryTreeRepository,
     private val uploadProperties: UploadProperties,
     private val webClient: WebClient,
     private val args: ApplicationArguments,
 ) : AutomationJob<SyncUploadResult> {
     private val logger = LoggerFactory.getLogger(this::class.java)
-
-    private val uploadable = setOf(UploadStatus.PENDING, UploadStatus.FAILED)
 
     override val name: String = "sync-upload"
 
@@ -61,13 +61,13 @@ class SyncUploadJob(
 
     override suspend fun execute(): SyncUploadResult = withContext(Dispatchers.IO) {
         val users = userRepository.findAllTargetAdminUsers()
-        val userId = args.getOptionValues("user")?.firstOrNull()
+        val userId = args.option("user")
         val index = users.indexOfFirst { it.id == userId }
         // 시트에 없는 유저를 동기화하면 그 계정 매물을 통째로 지우게 된다
         check(index >= 0) { "Unknown --user '$userId'. Sheet has ${users.size} users." }
 
         val user = users[index]
-        val delete = boolArg("delete", default = true)
+        val delete = args.boolOption("delete", default = true)
         val nextUserId = users.getOrNull(index + 1)?.id
         val cars = carRepository.findByAssignedUser(user.id)
         val expected = cars.filter { it.uploadStatus != UploadStatus.NEEDS_REMOVAL }
@@ -75,8 +75,8 @@ class SyncUploadJob(
             "Syncing ${user.id} (${user.targetSite}): 할당 ${cars.size}대, 사이트에 있어야 할 ${expected.size}대, delete=$delete",
         )
 
-        val submit = boolArg("submit", default = true)
-        val limit = args.getOptionValues("limit")?.firstOrNull()?.toInt() ?: Int.MAX_VALUE
+        val submit = args.boolOption("submit", default = true)
+        val limit = args.intOption("limit") ?: Int.MAX_VALUE
         val now = Instant.now()
 
         val outcome = try {
@@ -98,12 +98,8 @@ class SyncUploadJob(
                     val byNumber = updates.associateBy { it.carNumber }
                     val pending = cars
                         .map { byNumber[it.carNumber] ?: it }
-                        .filter {
-                            it.isActive &&
-                                !it.paid &&
-                                it.uploadStatus in uploadable &&
-                                it.uploadAttempts < uploadProperties.maxAttempts
-                        }.take(limit)
+                        .filter { it.isUploadable(uploadProperties.maxAttempts) }
+                        .take(limit)
                     val uploaded = upload(page, user, pending, submit)
                     Outcome(synced.found.size, synced.deleted.size, updates.count { it.assignedUserId == null }, uploaded)
                 }
@@ -144,12 +140,16 @@ class SyncUploadJob(
         submit: Boolean,
     ): UploadOutcome {
         if (cars.isEmpty()) return UploadOutcome()
-        val tree = carRepository.findCategoryTree()
+        val tree = categoryTreeRepository.findCategoryTree()
         if (tree == null) {
             logger.error("No category tree. collect-category를 먼저 돌려야 한다")
             return UploadOutcome(failed = cars.size)
         }
         val classifier = CarClassifier(tree)
+
+        suspend fun save(car: Car) {
+            if (submit) carRepository.saveAll(listOf(car))
+        }
 
         var uploaded = 0
         var failed = 0
@@ -157,13 +157,12 @@ class SyncUploadJob(
             val source = classifier.classify(car)
             if (source == null) {
                 logger.warn("분류 불가: ${car.carNumber} ${car.company} ${car.title}")
-                if (submit) carRepository.saveAll(listOf(car.markFailed("분류 불가")))
+                save(car.markFailed("분류 불가"))
                 failed++
                 continue
             }
             try {
-                // 올리는 동안만 UPLOADING — 중간에 멈춰도 남은 차량이 이 상태로 묶이지 않는다
-                if (submit) carRepository.saveAll(listOf(car.copy(uploadStatus = UploadStatus.UPLOADING)))
+                save(car.markUploading())
                 UploadCar(page, webClient).doAct(
                     UploadCarRequest(
                         source = source,
@@ -173,7 +172,7 @@ class SyncUploadJob(
                         submit = submit,
                     ),
                 )
-                if (submit) carRepository.saveAll(listOf(car.markUploaded(Instant.now())))
+                save(car.markUploaded(Instant.now()))
                 uploaded++
                 logger.info("올림 $uploaded/${cars.size}: ${car.carNumber} ${car.title}")
             } catch (e: CancellationException) {
@@ -181,23 +180,14 @@ class SyncUploadJob(
             } catch (e: UploadQuotaExhausted) {
                 // 계정이 막힌 것이므로 남은 차량은 PENDING 그대로 두고 다음 launch를 기다린다
                 logger.error("${user.id}: ${e.message}. 남은 ${cars.size - uploaded - failed}대는 건너뛴다")
-                if (submit) carRepository.saveAll(listOf(car.copy(uploadStatus = UploadStatus.PENDING)))
+                save(car.cancelUploading())
                 return UploadOutcome(uploaded, failed, exhausted = true)
             } catch (e: Exception) {
                 logger.warn("업로드 실패: ${car.carNumber} ${car.title} — ${e.message}")
-                if (submit) carRepository.saveAll(listOf(car.markFailed(e.message ?: e::class.simpleName.orEmpty())))
+                save(car.markFailed(e.message ?: e::class.simpleName.orEmpty()))
                 failed++
             }
         }
         return UploadOutcome(uploaded, failed)
     }
-
-    private fun boolArg(name: String, default: Boolean): Boolean =
-        args.getOptionValues(name)?.firstOrNull()?.let {
-            when (it.lowercase()) {
-                "true" -> true
-                "false" -> false
-                else -> throw IllegalArgumentException("Invalid --$name value: '$it'. Use true or false.")
-            }
-        } ?: default
 }

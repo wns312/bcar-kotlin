@@ -45,6 +45,19 @@ data class Car(
     fun assignTo(user: TargetAdminUser, now: Instant): Car =
         copy(assignedUserId = user.id, assignedAt = now, targetSite = user.targetSite, uploadStatus = UploadStatus.PENDING)
 
+    /** 올리는 동안만 UPLOADING — 중간에 멈춰도 남은 차량이 이 상태로 묶이지 않는다 */
+    fun markUploading(): Car = copy(uploadStatus = UploadStatus.UPLOADING)
+
+    /** 차가 아니라 계정 사정으로 못 올렸다. 다음 launch에 다시 시도한다 */
+    fun cancelUploading(): Car = copy(uploadStatus = UploadStatus.PENDING)
+
+    /** 실패 횟수가 한도에 닿은 차는 폼이 받아주지 않는 차라 매 실행 자리만 먹는다 */
+    fun isUploadable(maxAttempts: Int): Boolean =
+        isActive &&
+            !paid &&
+            (uploadStatus == UploadStatus.PENDING || uploadStatus == UploadStatus.FAILED) &&
+            uploadAttempts < maxAttempts
+
     fun markUploaded(now: Instant): Car =
         copy(uploadStatus = UploadStatus.UPLOADED, uploadedAt = now, uploadError = null, uploadAttempts = 0)
 

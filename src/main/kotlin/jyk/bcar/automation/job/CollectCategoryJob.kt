@@ -4,7 +4,7 @@ import jyk.bcar.automation.job.act.target.CollectCategoryTree
 import jyk.bcar.automation.job.act.target.TargetAdminLogin
 import jyk.bcar.automation.job.result.CollectCategoryResult
 import jyk.bcar.automation.playwright.PlaywrightSessionRunner
-import jyk.bcar.repository.CarRepository
+import jyk.bcar.repository.CategoryTreeRepository
 import jyk.bcar.repository.UserRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component
 class CollectCategoryJob(
     private val runner: PlaywrightSessionRunner,
     private val userRepository: UserRepository,
-    private val carRepository: CarRepository,
+    private val categoryTreeRepository: CategoryTreeRepository,
 ) : AutomationJob<CollectCategoryResult> {
     private val logger = LoggerFactory.getLogger(this::class.java)
 
@@ -47,7 +47,7 @@ class CollectCategoryJob(
                 CollectCategoryTree(page).doAct(Unit)
             }
         }
-        carRepository.saveCategoryTree(tree)
+        categoryTreeRepository.saveCategoryTree(tree)
 
         logger.info("Category tree saved from ${user.targetSite}")
         CollectCategoryResult(

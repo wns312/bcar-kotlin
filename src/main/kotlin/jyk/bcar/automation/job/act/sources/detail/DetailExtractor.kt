@@ -202,7 +202,7 @@ class DetailExtractor(
 }
 
 /** 리스·렌트 승계 매물. 페이지가 깨진 게 아니라 우리가 다루지 않는 차다 */
-class TakeoverListing : IllegalStateException("리스·렌트 승계 매물")
+class TakeoverListing : RuntimeException("리스·렌트 승계 매물")
 
 class DetailExtractorRequest(
     val htmlBytes: ByteArray,

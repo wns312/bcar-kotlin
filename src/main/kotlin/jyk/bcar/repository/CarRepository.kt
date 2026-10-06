@@ -1,7 +1,6 @@
 package jyk.bcar.repository
 
 import jyk.bcar.domain.Car
-import jyk.bcar.domain.CategoryTree
 
 interface CarRepository {
     /** DynamoDB 병렬 Scan 세그먼트. 여러 배치 잡이 테이블을 서로소로 나눠 읽을 때 사용 */
@@ -11,17 +10,4 @@ interface CarRepository {
     suspend fun findByAssignedUser(userId: String): List<Car>
 
     suspend fun saveAll(cars: List<Car>)
-
-    /** `_control` 아이템의 stopDetail 플래그. 상세 수집 체인을 밖에서 세우는 스위치 */
-    suspend fun isDetailCollectionStopped(): Boolean
-
-    /** 끝난 detail 체인 수를 원자적으로 1 올리고 그 값을 돌려준다. shards와 같아지면 마지막 체인이다 */
-    suspend fun markDetailChainDone(): Int
-
-    suspend fun resetDetailChains()
-
-    /** `_categories` 아이템에 든 대상 사이트 분류 트리. 아직 수집 전이면 null */
-    suspend fun findCategoryTree(): CategoryTree?
-
-    suspend fun saveCategoryTree(tree: CategoryTree)
 }

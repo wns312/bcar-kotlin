@@ -25,7 +25,9 @@ import java.time.Instant
 class DynamoDbCarRepository(
     private val properties: DynamoDbProperties,
     private val client: DynamoDbClient = defaultClient(),
-) : CarRepository {
+) : CarRepository,
+    PipelineControlRepository,
+    CategoryTreeRepository {
     companion object {
         private const val BATCH_WRITE_LIMIT = 25
         private const val ASSIGNED_USER_INDEX = "assignedUserId-index"
