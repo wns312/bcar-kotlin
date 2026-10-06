@@ -2,6 +2,7 @@ package jyk.bcar.repository
 
 import jyk.bcar.client.GoogleSheetsClient
 import jyk.bcar.configuration.GoogleProperties
+import jyk.bcar.domain.ExcludedAgencies
 import jyk.bcar.domain.SourceAdminUser
 import jyk.bcar.domain.TargetAdminUser
 import org.slf4j.LoggerFactory
@@ -11,11 +12,13 @@ import org.springframework.stereotype.Component
 class GoogleSheetsUserRepository(
     private val googleSheetsClient: GoogleSheetsClient,
     private val googleProperties: GoogleProperties,
-) : UserRepository {
+) : UserRepository,
+    ExcludedAgencyRepository {
     companion object {
         private const val SOURCE_ADMIN_USER_SHEET_NAME = "관리자계정정보"
         private const val TARGET_ADMIN_USER_SHEET_NAME = "교차로계정정보"
         private const val SITE_SHEET_NAME = "사이트정보"
+        private const val EXCLUDED_AGENCY_SHEET_NAME = "제외상사"
     }
 
     private val logger = LoggerFactory.getLogger(this::class.java)
@@ -71,6 +74,17 @@ class GoogleSheetsUserRepository(
             }
         }
     }
+
+    // 탭이 없으면 readRange가 실패해 할당이 멈춘다. 목록이 비었으면 탭만 두면 된다
+    override suspend fun findExcludedAgencies(): ExcludedAgencies =
+        ExcludedAgencies(
+            googleSheetsClient
+                .readRange(
+                    spreadsheetId = googleProperties.sheets.id,
+                    sheet = EXCLUDED_AGENCY_SHEET_NAME,
+                    rangeA1 = "A2:A", // label을 제외한 두번째 row부터 규칙
+                ).mapNotNull { it.firstOrNull() as? String },
+        )
 
     private fun findBaseUrls(): Map<String, String> =
         googleSheetsClient
