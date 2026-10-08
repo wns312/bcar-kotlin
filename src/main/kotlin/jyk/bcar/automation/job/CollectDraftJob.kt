@@ -2,11 +2,10 @@ package jyk.bcar.automation.job
 
 import jyk.bcar.automation.job.act.sources.CarType
 import jyk.bcar.automation.job.act.sources.SourceAdminLogin
-import jyk.bcar.automation.job.act.sources.SourceAdminLoginResult
 import jyk.bcar.automation.job.act.sources.draft.CollectCarListRequest
-import jyk.bcar.automation.job.act.sources.draft.CollectCarSearchRangeRequest
 import jyk.bcar.automation.job.act.sources.draft.CollectDraftCarList
 import jyk.bcar.automation.job.act.sources.draft.CollectDraftCarSearchRange
+import jyk.bcar.automation.job.act.sources.draft.DraftFilter
 import jyk.bcar.automation.job.result.CollectDraftResult
 import jyk.bcar.automation.playwright.PlaywrightSessionRunner
 import jyk.bcar.domain.Car
@@ -28,24 +27,11 @@ class CollectDraftJob(
     private val webClient: WebClient,
 ) : AutomationJob<CollectDraftResult> {
     companion object {
-        private const val DEFAULT_MIN_PRICE = 100
-        private const val BUS_TRUCK_MAX_PRICE = 4000
-        private const val ALL_MAX_PRICE = 2500
-
-        private val busSearchRangeRequest = CollectCarSearchRangeRequest(
-            carType = CarType.BUS,
-            minPrice = DEFAULT_MIN_PRICE,
-            maxPrice = BUS_TRUCK_MAX_PRICE,
-        )
-        private val truckSearchRangeRequest = CollectCarSearchRangeRequest(
-            carType = CarType.TRUCK,
-            minPrice = DEFAULT_MIN_PRICE,
-            maxPrice = BUS_TRUCK_MAX_PRICE,
-        )
-        private val allSearchRangeRequest = CollectCarSearchRangeRequest(
-            carType = CarType.ALL,
-            minPrice = DEFAULT_MIN_PRICE,
-            maxPrice = ALL_MAX_PRICE,
+        private const val MIN_PRICE = 100
+        private val FILTERS = listOf(
+            DraftFilter(CarType.BUS, MIN_PRICE, maxPrice = 4000),
+            DraftFilter(CarType.TRUCK, MIN_PRICE, maxPrice = 4000),
+            DraftFilter(CarType.ALL, MIN_PRICE, maxPrice = 2500),
         )
     }
 
@@ -56,35 +42,16 @@ class CollectDraftJob(
     override suspend fun execute(): CollectDraftResult = withContext(Dispatchers.IO) {
         logger.info("Collecting draft ids.")
 
-        val (busRange, truckRange, allRange, loginResult) = collectRanges()
+        val sourceAdminUser = userRepository.findSourceAdminUser()
+        val (cookieHeader, ranges) = runner.withSession { session ->
+            session.usePage { page ->
+                val login = SourceAdminLogin(page).doAct(sourceAdminUser)
+                login.cookieHeader to FILTERS.associateWith { CollectDraftCarSearchRange(page).doAct(it) }
+            }
+        }
 
-        val collectDraftListJob = CollectDraftCarList(webClient, loginResult.cookieHeader)
-        val busDraftCars = collectDraftListJob.doAct(
-            CollectCarListRequest(
-                carType = CarType.BUS,
-                minPrice = DEFAULT_MIN_PRICE,
-                maxPrice = BUS_TRUCK_MAX_PRICE,
-                pageRange = busRange,
-            ),
-        )
-        val truckDraftCars = collectDraftListJob.doAct(
-            CollectCarListRequest(
-                carType = CarType.TRUCK,
-                minPrice = DEFAULT_MIN_PRICE,
-                maxPrice = BUS_TRUCK_MAX_PRICE,
-                pageRange = truckRange,
-            ),
-        )
-        val allDraftCars = collectDraftListJob.doAct(
-            CollectCarListRequest(
-                carType = CarType.ALL,
-                minPrice = DEFAULT_MIN_PRICE,
-                maxPrice = ALL_MAX_PRICE,
-                pageRange = allRange,
-            ),
-        )
-
-        val collected = busDraftCars + truckDraftCars + allDraftCars
+        val carList = CollectDraftCarList(webClient, cookieHeader)
+        val collected = ranges.flatMap { (filter, range) -> carList.doAct(CollectCarListRequest(filter, range)) }
         val changes = Car.reconcile(existing = carRepository.findAll(), collected = collected)
         carRepository.saveAll(changes)
         // 이번 launch의 detail 체인 카운터. 마지막 체인이 assign을 제출하는 기준이 된다
@@ -93,26 +60,4 @@ class CollectDraftJob(
 
         CollectDraftResult(message = "drafts collected")
     }
-
-    private suspend fun collectRanges(): CollectDraftRangeResult {
-        val sourceAdminUser = userRepository.findSourceAdminUser()
-        return runner.withSession { session ->
-            session.usePage {
-                val loginResult = SourceAdminLogin(it).doAct(sourceAdminUser)
-
-                val busRange = CollectDraftCarSearchRange(it).doAct(input = busSearchRangeRequest)
-                val truckRange = CollectDraftCarSearchRange(it).doAct(input = truckSearchRangeRequest)
-                val allRange = CollectDraftCarSearchRange(it).doAct(input = allSearchRangeRequest)
-
-                CollectDraftRangeResult(busRange, truckRange, allRange, loginResult)
-            }
-        }
-    }
 }
-
-private data class CollectDraftRangeResult(
-    val busRange: IntRange,
-    val truckRange: IntRange,
-    val allRange: IntRange,
-    val loginResult: SourceAdminLoginResult,
-)

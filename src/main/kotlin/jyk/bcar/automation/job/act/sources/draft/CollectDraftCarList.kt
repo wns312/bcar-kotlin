@@ -1,9 +1,9 @@
 package jyk.bcar.automation.job.act.sources.draft
 
+import jyk.bcar.automation.job.act.JobAct
 import jyk.bcar.automation.job.act.retryOnFailure
-import jyk.bcar.automation.job.act.sources.CarType
 import jyk.bcar.automation.job.act.sources.CharSet
-import jyk.bcar.automation.job.act.sources.draft.DraftAct.Companion.COLLECT_ADMIN_URL
+import jyk.bcar.automation.job.act.sources.SourceSite
 import jyk.bcar.domain.Car
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -12,17 +12,17 @@ import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import org.slf4j.LoggerFactory
+import org.springframework.http.HttpHeaders
 import org.springframework.web.reactive.function.client.WebClient
 
 class CollectDraftCarList(
     private val webClient: WebClient,
     private val cookieHeader: String,
-) : DraftAct<CollectCarListRequest, List<Car>> {
+) : JobAct<CollectCarListRequest, List<Car>> {
     companion object {
-        private const val SOURCE_SEARCH_PAGE = "http://thebestcar.kr/mypage/_inc_carList.html"
         private const val DEFAULT_PARAMS = "searchChecker=1&listView=y&pageSize=100"
-        private const val SOURCE_SEARCH_BASE = "$SOURCE_SEARCH_PAGE?$DEFAULT_PARAMS"
-        private const val SOURCE_REFERER_BASE = "$COLLECT_ADMIN_URL?$DEFAULT_PARAMS"
+        private const val SOURCE_SEARCH_BASE = "${SourceSite.CAR_LIST_URL}?$DEFAULT_PARAMS"
+        private const val SOURCE_REFERER_BASE = "${SourceSite.MY_CAR_URL}?$DEFAULT_PARAMS"
 
         // 소스 서버가 크롤링 도중 불규칙하게 connection reset. 처리량은 동시성과 무관(~75p/min, 서버 병목)
         private const val CONCURRENCY = 3
@@ -38,26 +38,8 @@ class CollectDraftCarList(
             async {
                 semaphore.withPermit {
                     logger.info("$pageNum start")
-                    val url = getSourceSearchUrl(
-                        CollectCarSearchPageRequest(
-                            carType = input.carType,
-                            minPrice = input.minPrice,
-                            maxPrice = input.maxPrice,
-                            page = pageNum,
-                        ),
-                        baseUrl = SOURCE_SEARCH_BASE,
-                    )
-
-                    val refererUrl = getSourceSearchUrl(
-                        CollectCarSearchPageRequest(
-                            carType = input.carType,
-                            minPrice = input.minPrice,
-                            maxPrice = input.maxPrice,
-                            page = pageNum,
-                        ),
-                        baseUrl = SOURCE_REFERER_BASE,
-                    )
-
+                    val url = getSourceSearchUrl(SOURCE_SEARCH_BASE, input.filter, pageNum)
+                    val refererUrl = getSourceSearchUrl(SOURCE_REFERER_BASE, input.filter, pageNum)
                     val drafts = fetchList(url, refererUrl)
                     logger.info("$pageNum end")
                     drafts
@@ -66,12 +48,8 @@ class CollectDraftCarList(
         }
     }.awaitAll().flatten()
 
-    private fun getSourceSearchUrl(request: CollectCarSearchPageRequest, baseUrl: String): String = buildString {
-        append(baseUrl)
-        append("&c_price1=${request.minPrice}")
-        append("&c_price2=${request.maxPrice}")
-        append("&c_cho=${request.carType.searchNum}&page=${request.page}")
-    }
+    private fun getSourceSearchUrl(baseUrl: String, filter: DraftFilter, page: Int): String =
+        "$baseUrl&c_price1=${filter.minPrice}&c_price2=${filter.maxPrice}&c_cho=${filter.carType.searchNum}&page=$page"
 
     private suspend fun fetchList(url: String, refererUrl: String): List<Car> {
         val bytes = retryOnFailure { fetchBytes(url, refererUrl) }
@@ -90,35 +68,15 @@ class CollectDraftCarList(
         webClient
             .get()
             .uri(url)
-            .header(
-                "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            ).header("Accept-Encoding", "gzip, deflate")
-            .header("Accept-Language", "ko-KR,ko;q=0.9")
-            .header("Cache-Control", "no-cache")
-            .header("Connection", "keep-alive")
-            .header("Cookie", cookieHeader)
-            .header("Host", "thebestcar.kr")
-            .header("Pragma", "no-cache")
-            .header("Upgrade-Insecure-Requests", "1")
-            .header("User-Agent", DEFAULT_USER_AGENT)
-            // 응답이 정상적으로 오기 위해 요청 헤더로 필요 (요청자 URL 정보)
-            .header("Referer", refererUrl)
+            .headers(SourceSite.browserHeaders(DEFAULT_USER_AGENT, refererUrl))
+            .header(HttpHeaders.CONNECTION, "keep-alive")
+            .header(HttpHeaders.COOKIE, cookieHeader)
             .retrieve()
             .bodyToMono(ByteArray::class.java)
             .awaitSingle()
 }
 
-data class CollectCarSearchPageRequest(
-    val carType: CarType = CarType.ALL,
-    val minPrice: Int,
-    val maxPrice: Int,
-    val page: Int,
-)
-
 data class CollectCarListRequest(
-    val carType: CarType = CarType.ALL,
-    val minPrice: Int,
-    val maxPrice: Int,
+    val filter: DraftFilter,
     val pageRange: IntRange,
 )

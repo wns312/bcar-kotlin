@@ -4,20 +4,17 @@ import com.microsoft.playwright.Locator
 import com.microsoft.playwright.Page
 import com.microsoft.playwright.options.WaitForSelectorState
 import com.microsoft.playwright.options.WaitUntilState
+import jyk.bcar.automation.job.act.JobAct
 import jyk.bcar.automation.job.act.sources.CarType
+import jyk.bcar.automation.job.act.sources.SourceSite
 
 class CollectDraftCarSearchRange(
     private val page: Page,
-) : DraftAct<CollectCarSearchRangeRequest, IntRange> {
-    override suspend fun doAct(input: CollectCarSearchRangeRequest): IntRange {
+) : JobAct<DraftFilter, IntRange> {
+    override suspend fun doAct(input: DraftFilter): IntRange {
         val (carType, minPrice, maxPrice) = input
-        val url = buildString {
-            append("${DraftAct.COLLECT_ADMIN_URL}?searchChecker=1&mode=&pageSize=100&c_cho=${carType.searchNum}")
-            minPrice?.let { append("&c_price1=$it") }
-            maxPrice?.let { append("&c_price2=$it") }
-        }
         page.navigate(
-            url,
+            "${SourceSite.MY_CAR_URL}?searchChecker=1&mode=&pageSize=100&c_cho=${carType.searchNum}&c_price1=$minPrice&c_price2=$maxPrice",
             Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE),
         )
 
@@ -43,8 +40,8 @@ class CollectDraftCarSearchRange(
     }
 }
 
-data class CollectCarSearchRangeRequest(
-    val carType: CarType = CarType.ALL,
-    val minPrice: Int? = null,
-    val maxPrice: Int? = null,
+data class DraftFilter(
+    val carType: CarType,
+    val minPrice: Int,
+    val maxPrice: Int,
 )

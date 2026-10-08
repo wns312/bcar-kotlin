@@ -3,6 +3,7 @@ package jyk.bcar.automation.job.act.draft
 import jyk.bcar.automation.job.act.sources.CarType
 import jyk.bcar.automation.job.act.sources.draft.CollectCarListRequest
 import jyk.bcar.automation.job.act.sources.draft.CollectDraftCarList
+import jyk.bcar.automation.job.act.sources.draft.DraftFilter
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -50,12 +51,7 @@ class CollectDraftCarListTest {
             cookieHeader = "SESSION=unit-test",
         )
         val parsed = sut.doAct(
-            CollectCarListRequest(
-                carType = CarType.BUS,
-                minPrice = 1000,
-                maxPrice = 5000,
-                pageRange = 1..3,
-            ),
+            CollectCarListRequest(DraftFilter(CarType.BUS, minPrice = 1000, maxPrice = 5000), pageRange = 1..3),
         )
 
         assertEquals(3, parsed.size)
@@ -102,7 +98,7 @@ class CollectDraftCarListTest {
             }.build()
 
         val parsed = CollectDraftCarList(webClient, "SESSION=unit-test").doAct(
-            CollectCarListRequest(carType = CarType.BUS, minPrice = 1000, maxPrice = 5000, pageRange = 1..1),
+            CollectCarListRequest(DraftFilter(CarType.BUS, minPrice = 1000, maxPrice = 5000), pageRange = 1..1),
         )
 
         assertEquals(1, parsed.size)

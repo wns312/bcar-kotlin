@@ -4,6 +4,7 @@ import com.microsoft.playwright.Page
 import com.microsoft.playwright.options.WaitUntilState
 import jyk.bcar.automation.job.act.JobAct
 import jyk.bcar.domain.CategoryTree
+import jyk.bcar.domain.TargetAdminUser
 import jyk.bcar.domain.UploadSource
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import org.slf4j.LoggerFactory
@@ -102,9 +103,9 @@ class UploadCar(
         val car = source.car
         val detail = checkNotNull(car.detail) { "no detail for ${car.carNumber}" }
 
-        page.navigate(input.registerUrl, Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE))
+        page.navigate(input.user.registerUrl, Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE))
         // 무료 한도를 다 쓰면 상품 선택 페이지로 튕긴다. 여기서 그냥 진행하면 건당 결제가 된다
-        if (page.url().contains("car_product")) {
+        if (input.user.isProductSelectPage(page.url())) {
             throw UploadQuotaExhausted("무료 등록 한도 소진 (${page.url()})")
         }
         page.waitForSelector(FORM)
@@ -246,7 +247,7 @@ class UploadQuotaExhausted(
 
 data class UploadCarRequest(
     val source: UploadSource,
-    val registerUrl: String,
+    val user: TargetAdminUser,
     /** 마진까지 얹은 판매가(만원) */
     val price: Int,
     val comment: String,
