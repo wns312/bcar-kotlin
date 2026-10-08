@@ -1,5 +1,6 @@
 package jyk.bcar.automation.job.act.sources.draft
 
+import jyk.bcar.automation.job.act.JobAct
 import jyk.bcar.automation.job.act.sources.CharSet
 import jyk.bcar.domain.Car
 import org.jsoup.Jsoup
@@ -7,7 +8,7 @@ import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 import java.io.ByteArrayInputStream
 
-class DraftExtractor : DraftAct<DraftExtractorRequest, List<Car>> {
+class DraftExtractor : JobAct<DraftExtractorRequest, List<Car>> {
     private data class ExtractedInfo(
         val agency: String,
         val seller: String,

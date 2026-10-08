@@ -40,7 +40,7 @@ class CollectCategoryJob(
                 TargetAdminLogin(page).doAct(user)
                 page.navigate(user.registerUrl)
                 // 한도를 다 쓴 계정이면 상품 선택 페이지로 튕긴다. 트리만 읽을 거라 유료 상품 폼을 열어도 결제되지 않는다
-                if (page.url().contains("car_product")) {
+                if (user.isProductSelectPage(page.url())) {
                     logger.info("등록 한도 소진 계정 — 상품 지정으로 폼만 연다")
                     page.navigate("${user.registerUrl}&products=$FALLBACK_PRODUCT")
                 }

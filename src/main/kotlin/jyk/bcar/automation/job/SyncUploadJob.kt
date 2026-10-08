@@ -166,7 +166,7 @@ class SyncUploadJob(
                 UploadCar(page, webClient).doAct(
                     UploadCarRequest(
                         source = source,
-                        registerUrl = user.registerUrl,
+                        user = user,
                         price = car.price + uploadProperties.marginFor(car.price, CarCategory.of(car)),
                         comment = uploadProperties.comment,
                         submit = submit,
