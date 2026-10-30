@@ -12,7 +12,7 @@ dependencies {
     implementation(project(":infrastructure"))
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // Application context tests replace these external boundaries with mocks.
     testImplementation(platform("software.amazon.awssdk:bom:2.31.63"))

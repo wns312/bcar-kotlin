@@ -10,7 +10,11 @@ plugins {
     base
 }
 
+val coroutinesVersion = "1.10.2"
+
 allprojects {
+    // Spring dependency management must agree with the Gradle BOM in every module.
+    extra["kotlin-coroutines.version"] = coroutinesVersion
     group = "jyk"
     version = "0.0.1"
     repositories {
@@ -32,10 +36,11 @@ subprojects {
         version.set("1.6.0")
     }
     dependencies {
+        "implementation"(platform("org.jetbrains.kotlinx:kotlinx-coroutines-bom:$coroutinesVersion"))
         "testImplementation"(platform("org.junit:junit-bom:5.12.2"))
         "testImplementation"("org.junit.jupiter:junit-jupiter")
         "testImplementation"("org.jetbrains.kotlin:kotlin-test-junit5")
-        "testImplementation"("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+        "testImplementation"("org.jetbrains.kotlinx:kotlinx-coroutines-test")
         "testRuntimeOnly"("org.junit.platform:junit-platform-launcher")
     }
     tasks.withType<Test>().configureEach {
