@@ -13,23 +13,23 @@
 ```
 
 2. 실행 프로파일 선택
-- `local`: [`src/main/resources/application-local.yaml`](../src/main/resources/application-local.yaml) 사용
-- `dev`: [`src/main/resources/application-dev.yaml`](../src/main/resources/application-dev.yaml) + AWS Secrets Manager(`bcar-dev`)
-- `prod`: [`src/main/resources/application-prod.yaml`](../src/main/resources/application-prod.yaml) + AWS Secrets Manager(`bcar-prod`)
+- `local`: [`app/src/main/resources/application-local.yaml`](../app/src/main/resources/application-local.yaml) 사용
+- `dev`: [`app/src/main/resources/application-dev.yaml`](../app/src/main/resources/application-dev.yaml) + AWS Secrets Manager(`bcar-dev`)
+- `prod`: [`app/src/main/resources/application-prod.yaml`](../app/src/main/resources/application-prod.yaml) + AWS Secrets Manager(`bcar-prod`)
 
 ## 2) 실행 커맨드
 
 ### Gradle(개발 중 권장)
 
 ```bash
-./gradlew bootRun --args="--job=collect-draft --next=false --spring.profiles.active=local"
+./gradlew :app:bootRun --args="--job=collect-draft --next=false --spring.profiles.active=local"
 ```
 
 ### JAR 실행
 
 ```bash
 ./gradlew clean bootJar
-java -jar build/libs/bcar-kotlin-0.0.1.jar --job=collect-draft --next=false --spring.profiles.active=local
+java -jar app/build/libs/bcar-0.0.1.jar --job=collect-draft --next=false --spring.profiles.active=local
 ```
 
 ### Docker 실행
@@ -126,13 +126,13 @@ docker run --rm bcar-kotlin:local --job=collect-draft --next=false --spring.prof
 ### 후속 잡 제출 비활성화(로컬 검증용)
 
 ```bash
-./gradlew bootRun --args="--job=collect-draft --next=false --spring.profiles.active=local"
+./gradlew :app:bootRun --args="--job=collect-draft --next=false --spring.profiles.active=local"
 ```
 
 ### 후속 잡 제출 활성화(기본값)
 
 ```bash
-./gradlew bootRun --args="--job=collect-draft --spring.profiles.active=dev"
+./gradlew :app:bootRun --args="--job=collect-draft --spring.profiles.active=dev"
 ```
 
 `collect-draft` 성공 시 `AwsBatchJobSubmitter`가 `batch.jobs.<job>` 설정의 큐/정의로 실제 Batch 잡을 제출합니다. 로컬에서 실수로 제출하지 않도록 `--next=false`를 권장합니다.

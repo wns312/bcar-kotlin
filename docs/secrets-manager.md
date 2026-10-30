@@ -9,9 +9,9 @@ Terraform은 Secrets Manager 리소스(시크릿 자체)만 관리하고, 값은
 
 ## 2) 앱 로딩 방식
 
-- `dev`: [`src/main/resources/application-dev.yaml`](../src/main/resources/application-dev.yaml)에서 `aws-secretsmanager:bcar-dev` import
-- `prod`: [`src/main/resources/application-prod.yaml`](../src/main/resources/application-prod.yaml)에서 `aws-secretsmanager:bcar-prod` import
-- `local`: [`src/main/resources/application-local.yaml`](../src/main/resources/application-local.yaml)로 로컬 오버라이드
+- `dev`: [`app/src/main/resources/application-dev.yaml`](../app/src/main/resources/application-dev.yaml)에서 `aws-secretsmanager:bcar-dev` import
+- `prod`: [`app/src/main/resources/application-prod.yaml`](../app/src/main/resources/application-prod.yaml)에서 `aws-secretsmanager:bcar-prod` import
+- `local`: [`app/src/main/resources/application-local.yaml`](../app/src/main/resources/application-local.yaml)로 로컬 오버라이드
 
 ## 3) 값 갱신 절차(콘솔)
 

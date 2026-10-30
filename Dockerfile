@@ -13,6 +13,6 @@ rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY ./build/libs/*.jar app.jar
+COPY ./app/build/libs/*.jar app.jar
 
 ENTRYPOINT ["java","-jar","/app/app.jar"]

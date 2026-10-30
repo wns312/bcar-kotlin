@@ -49,7 +49,7 @@ jobs:
         run: |
           IMAGE_TAG=${{ github.sha }}
           docker build \
-            --build-arg JAR_FILE=build/libs/*.jar \
+            --build-arg JAR_FILE=app/build/libs/*.jar \
             -t ${{ env.IMAGE_TAG_URI }}:$IMAGE_TAG \
             -t ${{ env.IMAGE_TAG_URI }}:latest \
             .
