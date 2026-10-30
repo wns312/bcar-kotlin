@@ -4,6 +4,8 @@
 
 ## 문서
 
+- [모듈 구조](docs/modules.md)
+
 - [앱 실행 가이드](docs/app-run.md)
 - [Terraform 운영 가이드](docs/infra-terraform.md)
 - [Secrets Manager 운영 가이드](docs/secrets-manager.md)
@@ -14,7 +16,7 @@
 
 ```bash
 ./gradlew playwrightInstall
-./gradlew bootRun --args="--job=collect-draft --next=false --spring.profiles.active=local"
+./gradlew :app:bootRun --args="--job=collect-draft --next=false --spring.profiles.active=local"
 ```
 
 실행 인자/잡 목록/운영 시나리오는 [앱 실행 가이드](docs/app-run.md) 참고.
