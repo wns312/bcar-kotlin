@@ -20,7 +20,7 @@ val awsSdkVersion = "2.31.63"
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(17)
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 

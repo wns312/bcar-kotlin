@@ -4,6 +4,8 @@
 
 ## 1) 실행 전 준비
 
+- 빌드 및 실행: JDK 21 (Gradle Java toolchain, CI, Docker 런타임 공통)
+
 1. Playwright 브라우저 설치
 
 ```bash
