@@ -50,7 +50,7 @@ for j in all_jobs:
         events = logs.get_log_events(logGroupName='/aws/batch/bcar-prod', logStreamName=stream, startFromHead=False, limit=1000)['events']
         for event in events:
             message = event['message']
-            if any(s in message for s in ['ERROR', 'Exception', 'completed:', 'Submitted job', '무료 등록 한도']):
+            if any(s in message for s in ['ERROR', 'Exception', 'completed:', 'Submitted job', '무료 등록 한도', 'Timeout', 'waiting for', 'navigating to', 'Syncing ']):
                 print('FAILED_JOB_LOG', j['jobId'], message, flush=True)
 with open('exclusion-status.json', 'w') as f:
     json.dump(report, f, ensure_ascii=False)
