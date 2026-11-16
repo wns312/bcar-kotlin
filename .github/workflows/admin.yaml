@@ -24,4 +24,4 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
       - name: Verify existing assignment and synchronization (read only)
-        run: uv run --with boto3 python tools/trigger_exclusion.py
+        run: uv run --with boto3 python tools/monitor_exclusion.py
