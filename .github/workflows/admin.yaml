@@ -1,101 +1,27 @@
-# 로컬 CLI 없이 운영 작업을 돌리기 위한 수동 트리거. 쓰기는 사람이 누른 실행에서만 일어난다.
 name: Admin
 
 on:
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "Target environment"
-        required: true
-        type: choice
-        options: [dev, prod]
-        default: prod
-      reset_detail:
-        description: "조건에 맞는 차량의 detail을 비운다 (reset-detail --apply)"
-        type: boolean
-        default: false
-      submit_detail_jobs:
-        description: "collect-detail을 체인 없이 제출한다 (--next=false)"
-        type: boolean
-        default: false
-      detail_shards:
-        description: "collect-detail shard 수. 상세는 IP당 ~15건에서 막히므로 대상÷shards가 15 미만이어야 한다"
-        required: true
-        default: "2"
-      stop_detail:
-        description: "체인 정지 스위치. 계정을 옮기는 동안 assign이 끼어들지 못하게 막는다"
-        type: choice
-        options: [skip, "on", "off"]
-        default: skip
-      retry_failed:
-        description: "FAILED 차량을 PENDING으로 되돌린다 (retry-failed --apply). 실패 원인을 고친 배포 뒤에만"
-        type: boolean
-        default: false
-      sync_upload_dry_run_user:
-        description: "sync-upload 드라이런 (--delete=false --submit=false). 계정 ID"
-        required: false
-        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bcar-prod-manual-exclusion
+  cancel-in-progress: false
 
 jobs:
-  admin:
-    environment: ${{ inputs.environment }}
+  trigger-exclusion:
+    environment: prod
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-
       - uses: astral-sh/setup-uv@v5
-
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
-
-      # 무엇을 지우는지 로그에 먼저 남긴다 — 쓰기 뒤에는 대상을 되짚을 수 없다
-      - name: reset-detail (dry-run)
-        if: fromJSON(inputs.reset_detail)
-        run: uv run tools/bcar_admin.py reset-detail --env ${{ inputs.environment }}
-
-      - name: reset-detail (apply)
-        if: fromJSON(inputs.reset_detail)
-        run: uv run tools/bcar_admin.py reset-detail --env ${{ inputs.environment }} --apply
-
-      # collect-detail은 전용 큐를 쓴다 (application-<env>.yaml의 batch.jobs.collect-detail)
-      - name: submit collect-detail
-        if: fromJSON(inputs.submit_detail_jobs)
-        run: |
-          for s in $(seq 0 $(( ${{ inputs.detail_shards }} - 1 ))); do
-            aws batch submit-job \
-              --job-name "collect-detail-admin-shard$s" \
-              --job-queue bcar-${{ inputs.environment }}-detail-queue \
-              --job-definition bcar-${{ inputs.environment }}-detail-job \
-              --container-overrides "command=[\"--job=collect-detail\",\"--next=false\",\"--shards=${{ inputs.detail_shards }}\",\"--shard=$s\"]" \
-              --query 'jobId' --output text
-          done
-
-      # 계정을 옮기는 동안은 체인을 세운다 — assign이 먼저 돌면 인계 대상을 다른 계정이 가져간다
-      - name: control stop-detail
-        if: inputs.stop_detail != 'skip'
-        run: uv run tools/bcar_admin.py control --env ${{ inputs.environment }} --stop-detail ${{ inputs.stop_detail }} --apply
-
-      - name: retry-failed (dry-run)
-        if: fromJSON(inputs.retry_failed)
-        run: uv run tools/bcar_admin.py retry-failed --env ${{ inputs.environment }}
-
-      - name: retry-failed (apply)
-        if: fromJSON(inputs.retry_failed)
-        run: uv run tools/bcar_admin.py retry-failed --env ${{ inputs.environment }} --apply
-
-      # 새 계정 첫 동기화는 반드시 드라이런부터 — sync-upload는 사이트를 원천으로 보고 DB에 없는 매물을 지운다
-      - name: submit sync-upload (dry-run)
-        if: inputs.sync_upload_dry_run_user != ''
-        run: |
-          aws batch submit-job \
-            --job-name "sync-upload-dryrun-${{ inputs.sync_upload_dry_run_user }}" \
-            --job-queue bcar-${{ inputs.environment }}-sync-and-upload-queue \
-            --job-definition bcar-${{ inputs.environment }}-sync-upload-job \
-            --container-overrides "command=[\"--job=sync-upload\",\"--next=false\",\"--user=${{ inputs.sync_upload_dry_run_user }}\",\"--delete=false\",\"--submit=false\"]" \
-            --query 'jobId' --output text
-
-      - name: site-status
-        run: uv run tools/bcar_admin.py site-status --env ${{ inputs.environment }}
+      - name: Trigger assignment and synchronization for excluded agency
+        run: uv run --with boto3 python tools/trigger_exclusion.py
