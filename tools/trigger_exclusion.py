@@ -26,28 +26,9 @@ def snapshot():
     }
 
 
-control = table.get_item(Key={"carNumber": "_control"}, ConsistentRead=True).get("Item", {})
-if control.get("stopDetail", False):
-    raise SystemExit("Pipeline stop switch is enabled; no job submitted")
-
-active = []
-for queue in ["bcar-prod-queue", "bcar-prod-detail-queue", "bcar-prod-sync-and-upload-queue"]:
-    for status in ["SUBMITTED", "PENDING", "RUNNABLE", "STARTING", "RUNNING"]:
-        for page in batch.get_paginator("list_jobs").paginate(jobQueue=queue, jobStatus=status):
-            active.extend({"id": j["jobId"], "name": j["jobName"], "status": j["status"]} for j in page["jobSummaryList"])
-print("ACTIVE_JOBS", json.dumps(active), flush=True)
-if active:
-    raise SystemExit("Active pipeline jobs found; no duplicate job submitted")
-
-print("BEFORE", json.dumps(snapshot()), flush=True)
-response = batch.submit_job(
-    jobName="assign-cars-jd-exclusion-manual",
-    jobQueue="bcar-prod-queue",
-    jobDefinition="bcar-prod-job",
-    containerOverrides={"command": ["--job=assign-cars", "--next=true"]},
-)
-job_id = response["jobId"]
-print("SUBMITTED_JOB", job_id, flush=True)
+# Read-only verification of the already submitted job. Never resubmit it.
+job_id = "720db376-c4e4-4090-9959-1c2a5cf23bdd"
+print("VERIFY_JOB", job_id, flush=True)
 deadline = time.monotonic() + 900
 last = None
 while time.monotonic() < deadline:
@@ -61,7 +42,7 @@ while time.monotonic() < deadline:
         stream = job.get("container", {}).get("logStreamName")
         if stream:
             logs = boto3.client("logs", region_name=REGION)
-            events = logs.get_log_events(logGroupName="/aws/batch/job", logStreamName=stream, startFromHead=False, limit=1000)["events"]
+            events = logs.get_log_events(logGroupName="/aws/batch/bcar-prod", logStreamName=stream, startFromHead=False, limit=1000)["events"]
             for event in events:
                 message = event["message"]
                 if any(word in message for word in ["excluded=", "Submitted job", "Skip submitting", "completed:", "ERROR", "Exception"]):
@@ -72,3 +53,9 @@ while time.monotonic() < deadline:
     time.sleep(15)
 else:
     raise SystemExit("Assignment is still pending/running; do not resubmit. Job ID: " + job_id)
+
+active = []
+for status in ["SUBMITTED", "PENDING", "RUNNABLE", "STARTING", "RUNNING"]:
+    for page in batch.get_paginator("list_jobs").paginate(jobQueue="bcar-prod-sync-and-upload-queue", jobStatus=status):
+        active.extend({"id": j["jobId"], "name": j["jobName"], "status": j["status"]} for j in page["jobSummaryList"])
+print("ACTIVE_SYNC_JOBS", json.dumps(active), flush=True)
